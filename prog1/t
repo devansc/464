@@ -1,0 +1,6 @@
+gcc -I/usr/include/pcap trace.c -lpcap
+if [ $? -eq 0 ]
+then
+    ./a.out $1.pcap > out
+    vim -O out $1.out
+fi

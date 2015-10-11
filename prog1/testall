@@ -1,0 +1,8 @@
+#!/bin/bash
+for fyl in $1/*.pcap;
+do
+    ./a.out $fyl > out
+    echo "Testing "$fyl
+    diff -B -w out $(echo $fyl | cut -d '.' -f1).out
+done
+#diff -B -ignore-all-space out  
