@@ -22,14 +22,22 @@
 #include "packet.h"
 
 #define NRML_HDR_LEN 7
+#define MAX_HANDLES 100
 
-char *handles[5];
-int handleSockets[5];
+char *handles[MAX_HANDLES];
+int handleSockets[MAX_HANDLES];
 int curHandle = 0;
+int handlesInUse[MAX_HANDLES];
+int seq_num;
 
 int main(int argc, char *argv[])
 {
+    int i = 0;
     int server_socket= 0;   //socket descriptor for the server socket
+    seq_num = 0;
+
+    for ( ; i < MAX_HANDLES; i++) 
+        handlesInUse[i] = 0;
     //int listener_socket = 0;   //socket descriptor for the listener socket
 
     //printf("sockaddr: %d sockaddr_in %d\n", sizeof(struct sockaddr), sizeof(struct sockaddr_in));
@@ -48,6 +56,18 @@ int main(int argc, char *argv[])
     return 0;
 }
 
+void tcp_send(int socket, char *data, int len_data) {
+    int sent= 0;            //actual amount of data sent
+    sent =  send(socket, data, len_data, 0);
+    if(sent < 0)
+    {
+        perror("send call");
+        exit(-1);
+    }
+    //printf("Amount of data sent is: %d\n", sent);
+}
+
+
 void send_recieve_packets(int server_socket) {
     int max_sock, min_sock, sockNdx, client_socket;
     fd_set all_sockets;
@@ -64,6 +84,7 @@ void send_recieve_packets(int server_socket) {
 
     while(1) {
         read_sockets = all_sockets;
+        
         if (select(max_sock + 1, &read_sockets, NULL, NULL, NULL) == -1) {
             perror("select");
             exit(1);
@@ -77,9 +98,13 @@ void send_recieve_packets(int server_socket) {
                         exit(-1);
                     }
                     FD_SET(client_socket, &all_sockets);
-                    max_sock = client_socket;
+                    if (client_socket > max_sock)
+                        max_sock = client_socket;
                 } else {
-                    get_pkt(sockNdx);
+                    if (get_pkt(sockNdx) != 0) {
+                        FD_CLR(sockNdx, &all_sockets);
+                        //printf("removed socket %d from all_sockets\n", sockNdx);
+                    }
                 }
             }
         }
@@ -87,7 +112,51 @@ void send_recieve_packets(int server_socket) {
     }
 }
 
-void get_pkt(int client_socket) {
+// have to check for -1 return value
+void close_socket(int socket) {
+    int i;
+    for (i = 0; i < curHandle; i++) {
+        if (handleSockets[i] == socket) {
+            handlesInUse[i] = 0;
+            close(socket);
+        }
+    }
+}
+
+
+void send_handles(int client_socket) {
+    int numHandles = 0, i, networkNumHandles, lenHandlePkt = 0, curPos = 0;
+    uint8_t handleLen;
+    char *numHandlePkt, *handlePkt, *fullHandlePkt;
+    for (i = 0; i < curHandle; i++) {
+        if (handlesInUse[i]) {
+            numHandles++;
+            lenHandlePkt += strlen(handles[i]);
+        }
+    }
+    printf("server knows %d handles\n", numHandles);
+    networkNumHandles = htonl(numHandles);
+    numHandlePkt = create_full_packet((uint8_t)11, (void *)&networkNumHandles, 4);
+    tcp_send(client_socket, numHandlePkt, NRML_HDR_LEN + 4);
+    
+    lenHandlePkt += numHandles;      // add the 1 bit for length of each handle
+    handlePkt = malloc(lenHandlePkt);
+    for (i = 0; i < curHandle; i++) {
+        if (handlesInUse[i]) {
+            handleLen = (uint8_t) strlen(handles[i]);
+            handlePkt[curPos++] = handleLen;
+            memcpy(handlePkt + curPos, handles[i], handleLen);
+            curPos += handleLen;
+        }
+    }
+
+    fullHandlePkt = create_full_packet((uint8_t)12, handlePkt, lenHandlePkt);
+    fullHandlePkt[4] = 0;  // set the length field of 
+    fullHandlePkt[5] = 0;  // the packet to 0
+    tcp_send(client_socket, fullHandlePkt, NRML_HDR_LEN + lenHandlePkt);
+}
+
+int get_pkt(int client_socket) {
     int message_len = 0;     //length of the received message
     char *buf;              //buffer for receiving from client
     int buffer_size= 1024;  //packet size variable
@@ -100,6 +169,10 @@ void get_pkt(int client_socket) {
     {
         perror("recv call");
         exit(-1);
+    } else if (message_len == 0) {   //client exitted
+        close_socket(client_socket);
+        //printf("client pressed CTRL-C\n");
+        return client_socket;
     }
     
     memcpy(&pkt, buf, 7);
@@ -109,14 +182,25 @@ void get_pkt(int client_socket) {
     case 1:
         get_handle(buf + NRML_HDR_LEN, message_len, client_socket);
         break;
+    case 4:
+        forward_broadcast_message(buf, client_socket);
+        break;
     case 5:
-        get_message(buf + NRML_HDR_LEN, client_socket);
+        get_message(buf, client_socket);
+        break;
+    case 8:
+        printf("client exitting %d\n", client_socket);
+        tcp_send(client_socket, create_full_packet((uint8_t)9, NULL, 0), NRML_HDR_LEN);
+        close_socket(client_socket);
+        return client_socket;
+    case 10:
+        send_handles(client_socket);
         break;
     default:
-        printf("Unkown flag %hhu\n", ntohs(pkt.flag) >> 8);
+        printf("Unkown flag %hhu\n", (uint8_t)(ntohs(pkt.flag) >> 8));
         break;
     }
-
+    return 0;
 }
 
 char *get_handle_name(char *handleStart, uint8_t handleLen) {
@@ -129,28 +213,129 @@ char *get_handle_name(char *handleStart, uint8_t handleLen) {
 void get_handle(char *pkt, int pkt_len, int client_socket) {
     char *handle;
     uint8_t *handleLen;
+    int i, ndxHandle;
 
     handleLen = (uint8_t *)pkt;
     handle = malloc(*handleLen + 1);
     memcpy(handle, handleLen + 1, *handleLen);
     handle[*handleLen] = 0;
     //printf("%s entered the chat room\n", handle);
+    
+    for (i = 0; i < curHandle; i++) {
+        if (strcmp(handles[i], handle) == 0 && handlesInUse[i]) {
+            printf("handle %s already exists\n", handle);
+            pkt = create_full_packet(3, NULL, 0);            
+            tcp_send(client_socket, pkt, NRML_HDR_LEN);
+            return;
+        }
+    }
 
-    handles[curHandle] = handle;
-    handleSockets[curHandle] = client_socket;
-    curHandle++;
+    pkt = create_full_packet(2, NULL, 0);            
+    tcp_send(client_socket, pkt, NRML_HDR_LEN);
+
+    ndxHandle = curHandle;
+    for (i = 0; i < curHandle; i++) {
+        if (!handlesInUse[i]) {
+            ndxHandle = i;
+            break;
+        }
+    }
+
+    handles[ndxHandle] = handle;
+    handleSockets[ndxHandle] = client_socket;
+    handlesInUse[ndxHandle] = 1;            // need to set to 0 when they exit / close
+    printf("added handle at ndx %d %s\n", ndxHandle, handle);
+    curHandle = curHandle == ndxHandle ? curHandle + 1 : curHandle;
 }
 
-void get_message(char *pkt, int client_socket) {
+char *create_full_packet(uint8_t flag, char *pktTail, int pktTailLen) {
+    int16_t len = NRML_HDR_LEN + pktTailLen;
+    struct nrml_hdr pkt;
+    char *fullPkt;
+    pkt.seqNum = htons(seq_num);
+    pkt.len = htons(len);
+    pkt.flag = flag;
+    fullPkt = malloc(len);
+    memcpy(fullPkt, &pkt, NRML_HDR_LEN);
+    memcpy(fullPkt + NRML_HDR_LEN, pktTail, pktTailLen);
+    //printf("created packet ");
+    //print_packet(fullPkt, len);
+    seq_num++;
+    return fullPkt;
+}
+
+int get_handle_socket(char *handle) {
+    int i;
+    for (i = 0; i < curHandle; i++) {
+        if (strcmp(handles[i], handle) == 0) {
+            //printf("found handle socket %s %d", handle, handleSockets[i]);
+            return handleSockets[i];
+        }
+    }
+    return -1;
+}
+
+void forward_broadcast_message(char *pktStart, int client_socket) {
+    uint8_t *fromHandleLen;
+    char *msg;
+    char *fromHandle;
+    int handle_socket, ndxHandle;
+    char *pkt = pktStart + NRML_HDR_LEN;
+
+    fromHandleLen = (uint8_t *)pkt;
+    msg = strdup(pkt + *fromHandleLen + 1);
+    //printf("toHandleLen %u fromHandleLen %u\n", *toHandleLen, *fromHandleLen);
+    fromHandle = get_handle_name(pkt +1, *fromHandleLen);
+    printf("%s [broadcast]: %s\n", fromHandle, msg);
+
+    for (ndxHandle = 0; ndxHandle < curHandle; ndxHandle++ ) {
+        handle_socket = handleSockets[ndxHandle];
+        if (handle_socket != client_socket && handlesInUse[ndxHandle])
+            tcp_send(handle_socket, pktStart, strlen(pkt) + NRML_HDR_LEN);
+    }
+    if (ndxHandle == 0) {
+        printf("No handles found, not forwarding packet\n");
+    }
+}
+
+void get_message(char *pktStart, int client_socket) {
     uint8_t *toHandleLen, *fromHandleLen;
     char *msg;
-    //char *toHandle, *fromHandle;
+    char *toHandle, *fromHandle;
+    int handle_socket;
+    char *pkt = pktStart + NRML_HDR_LEN;
+    char *responsePacket, *responsePacketTail;
 
     toHandleLen = (uint8_t *)pkt;
     fromHandleLen = (uint8_t *)(pkt + 1 + *toHandleLen);
     msg = strdup(pkt + *toHandleLen + *fromHandleLen + 2);
     //printf("toHandleLen %u fromHandleLen %u\n", *toHandleLen, *fromHandleLen);
-    printf("%s->%s: %s\n", get_handle_name(pkt + *toHandleLen + 2, *fromHandleLen), get_handle_name(pkt + 1, *toHandleLen), msg);
+    fromHandle = get_handle_name(pkt + *toHandleLen + 2, *fromHandleLen);
+    toHandle = get_handle_name(pkt + 1, *toHandleLen);
+    printf("%s: %s\n", fromHandle, msg);
+
+    handle_socket = get_handle_socket(toHandle);
+    if (handle_socket != -1) {
+        tcp_send(handle_socket, pktStart, strlen(pkt) + NRML_HDR_LEN);
+
+        responsePacketTail = malloc(*toHandleLen + 1);
+        responsePacketTail[0] = *toHandleLen;
+        memcpy(responsePacketTail + 1, toHandle, *toHandleLen);
+
+        responsePacket = create_full_packet(6, responsePacketTail, 1 + *toHandleLen);
+        tcp_send(client_socket, responsePacket, NRML_HDR_LEN + *toHandleLen + 1);
+    }
+    else {
+        //printf("Handle %s (len %u) not found, not forwarding packet\n", toHandle, *toHandleLen);
+
+        responsePacketTail = malloc(*toHandleLen + 1);
+        responsePacketTail[0] = *toHandleLen;
+        memcpy(responsePacketTail + 1, toHandle, *toHandleLen);
+
+        responsePacket = create_full_packet(7, responsePacketTail, *toHandleLen + 1);
+        tcp_send(client_socket, responsePacket, NRML_HDR_LEN + *toHandleLen + 1);
+
+    }
 }
 
 /* This function sets the server socket.  It lets the system
