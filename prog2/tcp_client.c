@@ -23,6 +23,7 @@
 
 
 int seq_num;
+int knownHandles;
 char *handle;
 
 int main(int argc, char * argv[])
@@ -150,12 +151,11 @@ void create_and_send_msg(char *send_buf, int server_socket) {
     if (token != NULL && (strcmp(token, "%M") == 0 || strcmp(token, "%m") == 0)) { // message to a client
         toHandle = strtok(NULL, delim);
         if (toHandle == NULL) {
-            printf("Error, no handle given");
+            printf("Error, no handle given\n$: ");
             fflush(stdout);
             return;
         }
         if(strtok(NULL, delim) == NULL) {  // no msg so send empty message packet
-            printf("toHandle is %s\n", toHandle);
             pktHandleHeader = create_msg_handle_header(toHandle, &pktHandleHeaderLen);
             pkt = create_full_packet((uint8_t)5, pktHandleHeader, pktHandleHeaderLen);
             tcp_send(server_socket, pkt, NRML_HDR_LEN + pktHandleHeaderLen);
@@ -177,7 +177,8 @@ void create_and_send_msg(char *send_buf, int server_socket) {
         return;
     }
     else {
-        printf("Invalid command %s.\n", token);
+        printf("Invalid command\n$: ");
+        fflush(stdout);
     }
 }
 
@@ -293,9 +294,11 @@ void recieve_handle_packet(uint8_t *handles, int totalLen) {
     int curPos = 0;
     uint8_t len_handle;
     char *curHandle;
+    int i = 0;
 
     printf("Handles: ");
-    while (curPos < totalLen) {
+    //while (curPos < totalLen) {
+    while (i++ < knownHandles) {
         len_handle = handles[curPos++];
         curHandle = malloc(len_handle + 1);
         memcpy(curHandle, handles+curPos, len_handle);
@@ -312,7 +315,6 @@ int get_pkt(int socket) {
     char *buf;              //buffer for receiving from client
     int buffer_size= MAX_PKT_LEN;  //packet size variable
     struct nrml_hdr pkt;
-    int knownHandles;
 
     //create packet buffer
     buf = (char *) malloc(buffer_size);
@@ -328,42 +330,34 @@ int get_pkt(int socket) {
         free(buf);
         return socket;     
     }
-    //printf("recieved %d bytes\n", message_len);
-    //print_packet(buf, message_len);
-
     
     memcpy(&pkt, buf, 7);
-    //printf("Recieved packet: seqNum = %d, len = %hu, flag = %hhu\n", ntohs(pkt.seqNum), ntohs(pkt.len), ntohs(pkt.flag) >> 8);
-    //print_packet(buf, message_len);
     switch (pkt.flag) {
-    case 2:
-        //printf("Welcome %s\n", handle);
+    case INIT_ACK:
         break;
-    case 3: 
+    case INIT_ACK_ERR: 
         printf("Handle already in use: %s\n", handle);
         exit(1);
-    case 4: 
+    case BRDCST_MSG: 
         get_broadcast_message(buf, socket);
         break;
-    case 5:
+    case REG_MSG:
         get_message(buf + NRML_HDR_LEN, socket);
         break;
-    case 6:
-        //printf("recieved ack: %s\n", get_handle_name(buf+NRML_HDR_LEN + 1, (uint8_t)*(buf +NRML_HDR_LEN)));
+    case MSG_ACK:
         break;
-    case 7:
+    case MSG_ACK_ERR:
         printf("Client with handle %s does not exist.\n", get_handle_name(buf + NRML_HDR_LEN + 1, (uint8_t)*(buf + NRML_HDR_LEN)));
         break;
-    case 9:
+    case EXIT_ACK:
         close(socket);
         free(buf);
         return socket;;
-    case 11:
+    case HNDL_NUM:
         memcpy(&knownHandles, buf + NRML_HDR_LEN, 4);
-        //printf("There are %d handles known by server\n", ntohl(knownHandles));
+        knownHandles = ntohl(knownHandles);
         break;
-    case 12:
-        //print_packet(buf+NRML_HDR_LEN, message_len - NRML_HDR_LEN);
+    case HNDL_PKT:
         recieve_handle_packet((uint8_t *) (buf + NRML_HDR_LEN), message_len - NRML_HDR_LEN);
         break;
     default:
