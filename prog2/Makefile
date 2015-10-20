@@ -16,7 +16,7 @@ CFLAGS= -g
 # libraries are already in the link path.
 LIBS =
 
-all:  cclient server
+all: clean  cclient server
 
 cclient: tcp_client.c networks.h testing.o
 	$(CC) $(CFLAGS) -o cclient -Wall tcp_client.c testing.o $(LIBS)
