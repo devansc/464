@@ -181,21 +181,21 @@ int get_pkt(int client_socket) {
     //printf("Recieved packet: seqNum = %d, len = %hu, flag = %hhu\n", ntohs(pkt.seqNum), ntohs(pkt.len), ntohs(pkt.flag) >> 8);
     //print_packet(buf, message_len);
     switch (ntohs(pkt.flag) >> 8) {
-    case 1:
+    case INIT_MSG:
         get_handle(buf + NRML_HDR_LEN, message_len, client_socket);
         break;
-    case 4:
+    case BRDCST_MSG:
         forward_broadcast_message(buf, client_socket);
         break;
-    case 5:
+    case REG_MSG:
         get_message(buf, client_socket);
         break;
-    case 8:
+    case EXIT_MSG:
         //printf("client exitting %d\n", client_socket);
         tcp_send(client_socket, create_full_packet((uint8_t)9, NULL, 0), NRML_HDR_LEN);
         close_socket(client_socket);
         return client_socket;
-    case 10:
+    case HNDL_REQUEST:
         send_handles(client_socket);
         break;
     default:

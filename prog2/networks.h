@@ -3,6 +3,19 @@
 //#define MAX_PKT_LEN 64
 #define MAX_PKT_LEN 65536
 
+#define INIT_MSG 1
+#define INIT_ACK 2
+#define INIT_ACK_ERR 3
+#define BRDCST_MSG 4
+#define REG_MSG 5
+#define MSG_ACK 6
+#define MSG_ACK_ERR 7
+#define EXIT_MSG 8
+#define EXIT_ACK 9
+#define HNDL_REQUEST 10
+#define HNDL_NUM 11
+#define HNDL_PKT 12
+
 
 // for the server side
 int tcp_recv_setup();
