@@ -11,10 +11,11 @@
 #include "rcopy.h"
 #include "cpe464.h"
 
+int seq_num = 0;
 
 int main(int argc, char *argv[]) {
     Connection server;   
-    state curState;
+    STATE curState;
 
     if (argc != 5) {
         printf("usage %s [local-file] [remote-file] [remote-machine] [remote-port]\n", argv[0]);
@@ -55,9 +56,18 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
-state sendFilename(Connection server, char *localFile, char *remoteFile) {
+STATE sendFilename(Connection server, char *localFile, char *remoteFile) {
     Packet packet;
-    packet = createPacket(0, 1, "yo", 3);
+    int flag = 6;
+    FILE *transferFile;
+
+    transferFile = fopen(localFile, "r");
+    if (transferFile == NULL) {
+        fprintf(stderr, "File %s does not exist, exitting", localFile);
+        exit(1);
+    }
+
+    packet = createPacket(seq_num++, flag, remoteFile, strlen(remoteFile));
     sendPacket(server, packet);
     return DONE;
 }

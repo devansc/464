@@ -6,7 +6,7 @@
 #define MAX_LEN_PKT 1100
 #define HDR_LEN 9
 
-enum state {
+enum STATE {
     FILENAME, WINDOW, DATA, ACK, EOFCONFIRM, DONE
 };
 

@@ -7,5 +7,6 @@ int udp_recv_setup(int port);
 void initFields(Packet *pkt);
 char *pktToString(Packet packet);
 void startClient(int socket);
+STATE recieveFilename(int socket);
 
 #endif

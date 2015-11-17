@@ -47,6 +47,37 @@ int main (int argc, char **argv) {
 }
 
 void startClient(int socket) {
+    STATE curState;
+
+    curState = FILENAME;
+
+    while (curState != DONE) {
+        switch (curState) {
+
+        case FILENAME:
+            curState = recieveFilename(socket);
+            break;
+
+        case WINDOW:
+            break;
+
+        case DATA:
+            break;
+
+        case ACK:
+            break;
+
+        case EOFCONFIRM:
+            break;
+
+        case DONE:
+            break;
+        }
+    }
+
+}
+
+STATE recieveFilename(int socket) {
     Packet packet;
     char payload[MAX_LEN_PKT];
     struct sockaddr src_addr;
@@ -61,7 +92,9 @@ void startClient(int socket) {
         exit(0);   // client exitted
     }
     packet = fromPayload(payload);
-    printf("recieved packet %s\n", pktToString(packet));
+    printf("recieved filename %s\n", pktToString(packet));
+
+    return DONE;
 }
 
 
