@@ -58,7 +58,6 @@ int main(int argc, char *argv[]) {
 
 STATE sendFilename(Connection server, char *localFile, char *remoteFile) {
     Packet packet;
-    int flag = 6;
     FILE *transferFile;
 
     transferFile = fopen(localFile, "r");
@@ -67,7 +66,7 @@ STATE sendFilename(Connection server, char *localFile, char *remoteFile) {
         exit(1);
     }
 
-    packet = createPacket(seq_num++, flag, remoteFile, strlen(remoteFile));
+    packet = createPacket(seq_num++, FLAG_FILENAME, remoteFile, strlen(remoteFile));
     sendPacket(server, packet);
     return DONE;
 }

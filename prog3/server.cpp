@@ -59,6 +59,7 @@ void startClient(int socket) {
             break;
 
         case WINDOW:
+            curState = recieveWindow(socket);
             break;
 
         case DATA:
@@ -92,7 +93,31 @@ STATE recieveFilename(int socket) {
         exit(0);   // client exitted
     }
     packet = fromPayload(payload);
-    printf("recieved filename %s\n", pktToString(packet));
+    switch (packet.flag) {
+    case FLAG_FILENAME: 
+        printf("filename recieved");
+        return WINDOW;
+    default:
+        printf("Expected filename packet, recieved packet flag %d\n", packet.flag);
+        break;
+    }
+    //printf("recieved filename %s\n", pktToString(packet));
+
+    return DONE;
+}
+
+STATE recieveWindow(int socket) {
+    Packet packet = recievePacket(socket);
+
+    switch (packet.flag) {
+    case FLAG_WINDOW: 
+        printf("filename recieved");
+        return WINDOW;
+    default:
+        printf("Expected filename packet, recieved packet flag %d\n", packet.flag);
+        break;
+    }
+    //printf("recieved filename %s\n", pktToString(packet));
 
     return DONE;
 }

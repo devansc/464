@@ -6,6 +6,13 @@
 #define MAX_LEN_PKT 1100
 #define HDR_LEN 9
 
+#define FLAG_DATA 1
+#define FLAG_RESEND 2
+#define FLAG_RR 3
+#define FLAG_SREJ 4
+#define FLAG_FILENAME 6
+#define FLAG_WINDOW 7
+
 enum STATE {
     FILENAME, WINDOW, DATA, ACK, EOFCONFIRM, DONE
 };
@@ -29,5 +36,7 @@ typedef struct packet Packet;
 
 Packet createPacket(uint32_t seq_num, int flag, char *payload, int size_payload);
 Packet fromPayload(char *payload);
+char *getData(Packet p);
+Packet recievePacket(int socket);
 
 #endif

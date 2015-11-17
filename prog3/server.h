@@ -8,5 +8,6 @@ void initFields(Packet *pkt);
 char *pktToString(Packet packet);
 void startClient(int socket);
 STATE recieveFilename(int socket);
+STATE recieveWindow(int socket);
 
 #endif

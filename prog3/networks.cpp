@@ -44,3 +44,23 @@ Packet fromPayload(char *payload) {
     memcpy(pkt.payload, payload, pkt.size);
     return pkt;
 }
+
+Packet recievePacket(int socket) {
+    char payload[MAX_LEN_PKT];
+    struct sockaddr src_addr;
+    socklen_t addrLen;
+    int message_len;
+
+    if ((message_len = recvfrom(socket, payload, MAX_LEN_PKT, 0, 
+     &src_addr, &addrLen)) < 0) {
+        perror("recvFrom call");
+        exit(-1);
+    } else if (message_len == 0) {
+        exit(0);   // client exitted
+    }
+    return fromPayload(payload);
+}
+
+char *getData(Packet p) {
+    return p.payload + HDR_LEN;
+}
