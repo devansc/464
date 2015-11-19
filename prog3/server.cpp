@@ -25,6 +25,7 @@ int main (int argc, char **argv) {
             continue;
 
         // HAS_DATA
+        //processClient(udp_recv_setup(0));
         processClient(connectionSocket);
         printf("child exitting\n");
         exit(0);
@@ -41,6 +42,7 @@ void processClient(int socket) {
     curState = FILENAME;
     seq_num = 0;
     connection.socket = socket;
+    connection.addr_len = sizeof(struct sockaddr_in);
 
 
     while (curState != DONE) {
@@ -73,13 +75,15 @@ void processClient(int socket) {
 STATE recieveFilename() {
     Packet packet = recievePacket(&connection);
     Packet ackPacket;
+    char *filename;
 
     //printf("created connection socket %d, address %s\n", connection.socket, inet_ntoa(connection.address->sin_addr));
 
     switch (packet.flag) {
     case FLAG_FILENAME: 
-        printf("filename recieved\n");
-        ackPacket = createPacket(seq_num++, FLAG_FILENAME_ACK, NULL, 0);  // have to check on other side...
+        filename = strdup(packet.data);
+        printf("filename recieved %s\n", filename);
+        ackPacket = createPacket(seq_num++, FLAG_FILENAME_ACK, NULL, 0);  
         sendPacket(connection, ackPacket);
         return WINDOW;
     default:
@@ -93,18 +97,23 @@ STATE recieveFilename() {
 
 STATE recieveWindow() {
     Packet packet = recievePacket(&connection);
+    Packet ackPacket;
+    int window;
 
     switch (packet.flag) {
     case FLAG_WINDOW: 
-        printf("window recieved");
-        return WINDOW;
+        memcpy(&window, &packet.data, sizeof(int));
+        printf("window recieved %d\n", window);
+        ackPacket = createPacket(seq_num++, FLAG_FILENAME_ACK, NULL, 0); 
+        sendPacket(connection, ackPacket);
+        return DONE;
     default:
         printf("Expected window packet, recieved packet flag %d\n", packet.flag);
         break;
     }
     //printf("recieved window %s\n", pktToString(packet));
 
-    return DONE;
+    return WINDOW;
 }
 
 

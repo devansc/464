@@ -63,11 +63,9 @@ int main(int argc, char *argv[]) {
 
 STATE sendWindow(int window) {
     Packet packet;
-    char *message;
 
-    sprintf(message, "%d", window);
-
-    packet = createPacket(seq_num++, FLAG_WINDOW, message, strlen(message));
+    printf("sending window %d\n", window);
+    packet = createPacket(seq_num++, FLAG_WINDOW, (char *)&window, sizeof(int));
     return stopAndWait(packet, 10, DONE);
 }
 
@@ -81,13 +79,12 @@ STATE sendFilename(char *localFile, char *remoteFile) {
         exit(1);
     }
 
-    //printf("sendFilename connection socket %d, address %s\n", connection.socket, inet_ntoa(connection.address->sin_addr));
+    printf("sending filename %s to port %d\n", remoteFile, ntohs(connection.address.sin_port));
     packet = createPacket(seq_num++, FLAG_FILENAME, remoteFile, strlen(remoteFile));
     return stopAndWait(packet, 10, WINDOW);
 }
 
 STATE stopAndWait(Packet packet, int numTriesLeft, STATE nextState) {
-    //printf("sending packet to connection socket %d, address %s\n", connection.socket, inet_ntoa(connection.address->sin_addr));
     if (numTriesLeft <= 0) {
         printf("Server disconnected\n");
         return DONE;
@@ -134,12 +131,9 @@ Connection udp_send_setup(char *host_name, char *port) {
     remote.sin_port= htons(atoi(port));
     
     newConnection.socket = socket_num;
-    //newConnection.address = (struct sockaddr_in *) malloc(sockaddrinSize);
-    //memcpy(newConnection.address, &remote, sockaddrinSize);
     newConnection.address = remote;
     newConnection.addr_len = sockaddrinSize;
     printf("created connection socket %d, address %s\n", socket_num, inet_ntoa(remote.sin_addr));
-    //printf("created connection socket %d, address %s\n", socket_num, inet_ntoa(newConnection.address->sin_addr));
 
     return newConnection;
 }

@@ -28,11 +28,15 @@ Packet createPacket(uint32_t seq_num, int flag, char *payload, int size_payload)
     packet.size = size_payload + HDR_LEN + 1;
     packet.payload = (char *) (malloc(packet.size));
     memset(packet.payload, 0, packet.size);
-    memcpy(packet.payload + HDR_LEN, payload, size_payload);
-    packet.data = packet.payload + HDR_LEN;
+    if (size_payload > 0){
+        memcpy(packet.payload + HDR_LEN, payload, size_payload);
+        packet.data = packet.payload + HDR_LEN;
+    } else {
+        packet.data = NULL;
+    }
     
-    printf("created packet %d, size %d, data %s\n", seq_num, packet.size, packet.data);
     initHeader(&packet);
+    //printf("created packet %d, size %d, data %s\n", seq_num, packet.size, packet.data);
     return packet;
 }
 
@@ -48,7 +52,7 @@ void print_packet(void * start, int bytes) {
 
 void sendPacket(Connection connection, Packet packet) {
     //printf("sending packet %s\n", packet.data);
-    printf("sending packet to %s\n", inet_ntoa(connection.address.sin_addr));
+    //printf("sending packet to %s\n", inet_ntoa(connection.address.sin_addr));
     print_packet(packet.payload, packet.size);
     if (sendtoErr(connection.socket, packet.payload, packet.size, 0, (struct sockaddr*) &connection.address, connection.addr_len) < 0) {
         perror("send call failed");
@@ -68,13 +72,13 @@ SELECTVAL selectCall(int socket, int timeoutSec) {
     FD_ZERO(&readFds);
     FD_SET(socket, &readFds);
 
-    printf("recieving data\n");
+    //printf("recieving data\n");
     if ((selectReturn = selectMod(socket + 1, &readFds, 0, 0, &timeout)) < 0) {
         perror("select call");
         exit(-1);
     }
     if (selectReturn == 0) {
-        printf("timed out\n");
+        //printf("timed out\n");
         return SELECT_TIMEOUT;
     }
     return SELECT_HAS_DATA;
@@ -100,12 +104,15 @@ Packet recievePacket(Connection *connection) {
     char payload[MAX_LEN_PKT];
     int message_len;
 
-    if ((message_len = recvfromErr(connection->socket, payload, MAX_LEN_PKT, 0, (struct sockaddr *) &connection->address, &connection->addr_len)) < 0) {
+
+    //printf("connection before recieve %s\n", inet_ntoa(connection->address.sin_addr));
+    if ((message_len = recvfromErr(connection->socket, payload, MAX_LEN_PKT, 0, (struct sockaddr *) &(connection->address), &(connection->addr_len))) < 0) {
         perror("recvFrom call");
         exit(-1);
     } else if (message_len == 0) {
         exit(0);   // client exitted
     }
-    printf("established connection %s\n", inet_ntoa(connection->address.sin_addr));
+    printf("port now %d\n", connection->address.sin_port);
+    //printf("connection after recieve %s\n", inet_ntoa(connection->address.sin_addr));
     return fromPayload(payload);
 }
