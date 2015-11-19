@@ -102,9 +102,10 @@ STATE recieveWindow() {
 
     switch (packet.flag) {
     case FLAG_WINDOW: 
-        memcpy(&window, &packet.data, sizeof(int));
+        window = *(int *)packet.data;
+        window = ntohl(window);
         printf("window recieved %d\n", window);
-        ackPacket = createPacket(seq_num++, FLAG_FILENAME_ACK, NULL, 0); 
+        ackPacket = createPacket(seq_num++, FLAG_WINDOW_ACK, NULL, 0); 
         sendPacket(connection, ackPacket);
         return DONE;
     default:

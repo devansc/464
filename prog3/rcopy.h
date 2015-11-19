@@ -5,7 +5,9 @@
 
 Connection udp_send_setup(char *host_name, char *port);
 STATE sendFilename(char *localFile, char *remoteFile);
-STATE sendWindow(int window);
-STATE stopAndWait(Packet packet, int numTriesLeft, STATE nextState);
+STATE sendWindowSize(int window);
+STATE stopAndWait(Packet packet, int numTriesLeft, int flagExpected, STATE nextState);
+STATE sendData(Packet *filePackets);
+STATE recieveAcks();
 
 #endif
