@@ -12,13 +12,19 @@
 #define FLAG_SREJ 4
 #define FLAG_FILENAME 6
 #define FLAG_WINDOW 7
+#define FLAG_FILENAME_ACK 8
+#define FLAG_WINDOW_ACK 9 
+
+enum SELECTVAL {
+    SELECT_HAS_DATA, SELECT_TIMEOUT
+};
 
 enum STATE {
     FILENAME, WINDOW, DATA, ACK, EOFCONFIRM, DONE
 };
 
 struct connection {
-    int32_t socket;
+    int socket;
     struct sockaddr_in address;
     size_t addr_len;
 };
@@ -29,7 +35,8 @@ struct packet {
     int16_t checksum;
     int8_t flag;
     uint16_t size;
-    char payload[MAX_LEN_PKT];
+    char *payload;
+    char *data;
 };
 typedef struct packet Packet;
 
@@ -37,6 +44,9 @@ typedef struct packet Packet;
 Packet createPacket(uint32_t seq_num, int flag, char *payload, int size_payload);
 Packet fromPayload(char *payload);
 char *getData(Packet p);
-Packet recievePacket(int socket);
+Packet recievePacket(Connection *connection);
+SELECTVAL selectCall(int socket, int timeoutSec);
+void sendPacket(Connection server, Packet packet);
+void print_packet(void * start, int bytes);
 
 #endif

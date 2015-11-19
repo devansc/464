@@ -1,7 +1,7 @@
 # Makefile for CPE464 library
 
 CC = g++
-CFLAGS = -g -Wall 
+CFLAGS = -g -Wall
 
 OS = $(shell uname -s)
 ifeq ("$(OS)", "SunOS")
@@ -18,7 +18,7 @@ V=@
 
 include version.mk
 
-all: header $(OBJS) rcopy server link combHeader clean
+all: header $(OBJS) link combHeader clean
 	@echo "-------------------------------"
 
 partial: header $(OBJS)
@@ -33,16 +33,6 @@ version:
 header:
 	@echo "-------------------------------"
 	@echo "Building $(LIBNAME) Objects"
-
-server: file_server.cpp
-	@echo "-------------------------------"
-	@echo "  Building $@"
-	$(V)$(CC) $(CFLAGS) $< -o $@ $(LIBS)
-
-rcopy: file_copy.cpp
-	@echo "-------------------------------"
-	@echo "  Building $@"
-	$(V)$(CC) $(CFLAGS) $< -o $@ $(LIBS)
 
 .cpp.o:
 	@echo "-------------------------------"

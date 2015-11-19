@@ -10,56 +10,48 @@
 #include "server.h"
 #include "cpe464.h"
 
+#define DEFAULT_TIMEOUT 10
+
+int seq_num;
+Connection connection;
+
 int main (int argc, char **argv) {
-    int socket;
+    int connectionSocket;
     int port = 0;
-    socket = udp_recv_setup(port);
-    fd_set readFds;
-    struct timeval timeout;
-    int selectReturn;
+    connectionSocket = udp_recv_setup(port);
 
     while (1) {
-        timeout.tv_sec = 10;
-        timeout.tv_usec = 0;
-        FD_ZERO(&readFds);
-        FD_SET(socket, &readFds);
+        if (selectCall(connectionSocket, DEFAULT_TIMEOUT) == SELECT_TIMEOUT) 
+            continue;
 
-        printf("recieving data\n");
-        if ((selectReturn = selectMod(socket + 1, &readFds, 0, 0, &timeout)) < 0) {
-            perror("select call");
-            exit(-1);
-        }
-        if (selectReturn == 0) {
-            printf("timed out\n");
-            continue;   // timed out
-        }
+        // HAS_DATA
+        processClient(connectionSocket);
+        printf("child exitting\n");
+        exit(0);
 
-        // found data to be recieved
-        printf("found data in select call\n");
-        if (fork() == 0) {
-            startClient(socket);
-            break;
-        }
     }
 
-    printf("child exitting\n");
     return 0;
 }
 
-void startClient(int socket) {
+void processClient(int socket) {
     STATE curState;
+    printf("talking to client on socket %d\n", socket);
 
     curState = FILENAME;
+    seq_num = 0;
+    connection.socket = socket;
+
 
     while (curState != DONE) {
         switch (curState) {
 
         case FILENAME:
-            curState = recieveFilename(socket);
+            curState = recieveFilename();
             break;
 
         case WINDOW:
-            curState = recieveWindow(socket);
+            curState = recieveWindow();
             break;
 
         case DATA:
@@ -78,24 +70,17 @@ void startClient(int socket) {
 
 }
 
-STATE recieveFilename(int socket) {
-    Packet packet;
-    char payload[MAX_LEN_PKT];
-    struct sockaddr src_addr;
-    socklen_t addrLen;
-    int message_len;
+STATE recieveFilename() {
+    Packet packet = recievePacket(&connection);
+    Packet ackPacket;
 
-    if ((message_len = recvfrom(socket, payload, MAX_LEN_PKT, 0, 
-     &src_addr, &addrLen)) < 0) {
-        perror("recvFrom call");
-        exit(-1);
-    } else if (message_len == 0) {
-        exit(0);   // client exitted
-    }
-    packet = fromPayload(payload);
+    //printf("created connection socket %d, address %s\n", connection.socket, inet_ntoa(connection.address->sin_addr));
+
     switch (packet.flag) {
     case FLAG_FILENAME: 
-        printf("filename recieved");
+        printf("filename recieved\n");
+        ackPacket = createPacket(seq_num++, FLAG_FILENAME_ACK, NULL, 0);  // have to check on other side...
+        sendPacket(connection, ackPacket);
         return WINDOW;
     default:
         printf("Expected filename packet, recieved packet flag %d\n", packet.flag);
@@ -106,18 +91,18 @@ STATE recieveFilename(int socket) {
     return DONE;
 }
 
-STATE recieveWindow(int socket) {
-    Packet packet = recievePacket(socket);
+STATE recieveWindow() {
+    Packet packet = recievePacket(&connection);
 
     switch (packet.flag) {
     case FLAG_WINDOW: 
-        printf("filename recieved");
+        printf("window recieved");
         return WINDOW;
     default:
-        printf("Expected filename packet, recieved packet flag %d\n", packet.flag);
+        printf("Expected window packet, recieved packet flag %d\n", packet.flag);
         break;
     }
-    //printf("recieved filename %s\n", pktToString(packet));
+    //printf("recieved window %s\n", pktToString(packet));
 
     return DONE;
 }
@@ -126,8 +111,7 @@ STATE recieveWindow(int socket) {
 
 char *pktToString(Packet packet) {
     char *returnString;
-    char *data = packet.payload;
-    sprintf(returnString, "Packet %d len %d, data %s", packet.seq_num, packet.size, data + HDR_LEN);
+    sprintf(returnString, "Packet %d len %d, data %s", packet.seq_num, packet.size, packet.data);
     return returnString;
 }
 

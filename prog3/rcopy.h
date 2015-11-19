@@ -3,9 +3,9 @@
 
 #include "networks.h"
 
-void sendPacket(Connection server, Packet packet);
 Connection udp_send_setup(char *host_name, char *port);
-void print_packet(void * start, int bytes);
-STATE sendFilename(Connection server, char *localFile, char *remoteFile);
+STATE sendFilename(char *localFile, char *remoteFile);
+STATE sendWindow(int window);
+STATE stopAndWait(Packet packet, int numTriesLeft, STATE nextState);
 
 #endif

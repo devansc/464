@@ -11,10 +11,12 @@
 #include "rcopy.h"
 #include "cpe464.h"
 
+#define DEFAULT_TIMEOUT 1
+
 int seq_num = 0;
+Connection connection;   
 
 int main(int argc, char *argv[]) {
-    Connection server;   
     STATE curState;
 
     if (argc != 5) {
@@ -24,18 +26,21 @@ int main(int argc, char *argv[]) {
 
     sendErr_init(0, DROP_OFF, FLIP_OFF, DEBUG_ON, RSEED_OFF);
 
-    server = udp_send_setup(argv[3], argv[4]);
+    connection = udp_send_setup(argv[3], argv[4]);
     
+    //printf("connection socket %d, address %s\n", connection.socket, inet_ntoa(connection.address->sin_addr));
+
     curState = FILENAME;
     
     while (curState != DONE) {
         switch (curState) {
 
         case FILENAME:
-            curState = sendFilename(server, argv[1], argv[2]);
+            curState = sendFilename(argv[1], argv[2]);
             break;
 
         case WINDOW:
+            curState = sendWindow(5);
             break;
 
         case DATA:
@@ -56,7 +61,17 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
-STATE sendFilename(Connection server, char *localFile, char *remoteFile) {
+STATE sendWindow(int window) {
+    Packet packet;
+    char *message;
+
+    sprintf(message, "%d", window);
+
+    packet = createPacket(seq_num++, FLAG_WINDOW, message, strlen(message));
+    return stopAndWait(packet, 10, DONE);
+}
+
+STATE sendFilename(char *localFile, char *remoteFile) {
     Packet packet;
     FILE *transferFile;
 
@@ -66,20 +81,26 @@ STATE sendFilename(Connection server, char *localFile, char *remoteFile) {
         exit(1);
     }
 
+    //printf("sendFilename connection socket %d, address %s\n", connection.socket, inet_ntoa(connection.address->sin_addr));
     packet = createPacket(seq_num++, FLAG_FILENAME, remoteFile, strlen(remoteFile));
-    sendPacket(server, packet);
-    return DONE;
+    return stopAndWait(packet, 10, WINDOW);
 }
 
-void sendPacket(Connection server, Packet packet) {
-    //printf("sending packet %s\n", packet.payload + HDR_LEN);
-    printf("sending packet");
-    print_packet(packet.payload, packet.size);
-    if (sendtoErr(server.socket, packet.payload, packet.size, 0, (struct sockaddr*) &server.address, server.addr_len) < 0) {
-        perror("send call failed");
-        exit(-1);
+STATE stopAndWait(Packet packet, int numTriesLeft, STATE nextState) {
+    //printf("sending packet to connection socket %d, address %s\n", connection.socket, inet_ntoa(connection.address->sin_addr));
+    if (numTriesLeft <= 0) {
+        printf("Server disconnected\n");
+        return DONE;
     }
-    printf("sent\n");
+
+    sendPacket(connection, packet);
+    if (selectCall(connection.socket, DEFAULT_TIMEOUT) == SELECT_TIMEOUT) {
+        printf("timed out waiting for server ack");
+        stopAndWait(packet, numTriesLeft - 1, nextState);
+    }
+    recievePacket(&connection);
+    printf("done in %d tries\n", 10 - numTriesLeft);
+    return nextState;
 }
 
 Connection udp_send_setup(char *host_name, char *port) {
@@ -87,6 +108,7 @@ Connection udp_send_setup(char *host_name, char *port) {
     int socket_num;
     struct sockaddr_in remote;       // socket address for remote side
     struct hostent *hp;              // address of remote host
+    int sockaddrinSize = sizeof(struct sockaddr_in);
 
     // create the socket
     if ((socket_num = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
@@ -112,19 +134,13 @@ Connection udp_send_setup(char *host_name, char *port) {
     remote.sin_port= htons(atoi(port));
     
     newConnection.socket = socket_num;
+    //newConnection.address = (struct sockaddr_in *) malloc(sockaddrinSize);
+    //memcpy(newConnection.address, &remote, sockaddrinSize);
     newConnection.address = remote;
-    newConnection.addr_len = sizeof(struct sockaddr_in);
+    newConnection.addr_len = sockaddrinSize;
     printf("created connection socket %d, address %s\n", socket_num, inet_ntoa(remote.sin_addr));
+    //printf("created connection socket %d, address %s\n", socket_num, inet_ntoa(newConnection.address->sin_addr));
 
     return newConnection;
 }
 
-void print_packet(void * start, int bytes) {
-    int i;
-    uint8_t *byt1 = (uint8_t*) start;
-    for (i = 0; i < bytes; i += 2) {
-        printf("%.2X%.2X ", *byt1, *(byt1 + 1));
-        byt1 += 2;
-    }
-    printf("\n");
-}
