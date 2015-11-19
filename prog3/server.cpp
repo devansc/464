@@ -14,6 +14,7 @@
 
 int seq_num;
 Connection connection;
+FILE *outputFile; 
 
 int main (int argc, char **argv) {
     int connectionSocket;
@@ -57,6 +58,7 @@ void processClient(int socket) {
             break;
 
         case DATA:
+            curState = recieveData();
             break;
 
         case ACK:
@@ -72,6 +74,19 @@ void processClient(int socket) {
 
 }
 
+STATE recieveData() {
+    Packet recvPacket;
+
+    if (selectCall(connection.socket, DEFAULT_TIMEOUT) == SELECT_TIMEOUT) {
+        printf("timed out recieving data, exitting\n");
+        return DONE;
+    }
+
+    recvPacket = recievePacket(&connection); // need to buffer
+    fprintf(outputFile, recvPacket.data);
+    return DONE;// should be ACK
+}
+
 STATE recieveFilename() {
     Packet packet = recievePacket(&connection);
     Packet ackPacket;
@@ -85,6 +100,7 @@ STATE recieveFilename() {
         printf("filename recieved %s\n", filename);
         ackPacket = createPacket(seq_num++, FLAG_FILENAME_ACK, NULL, 0);  
         sendPacket(connection, ackPacket);
+        outputFile = fopen(filename, "w");
         return WINDOW;
     default:
         printf("Expected filename packet, recieved packet flag %d\n", packet.flag);
@@ -107,7 +123,7 @@ STATE recieveWindow() {
         printf("window recieved %d\n", window);
         ackPacket = createPacket(seq_num++, FLAG_WINDOW_ACK, NULL, 0); 
         sendPacket(connection, ackPacket);
-        return DONE;
+        return DATA;
     default:
         printf("Expected window packet, recieved packet flag %d\n", packet.flag);
         break;

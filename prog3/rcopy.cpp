@@ -75,26 +75,33 @@ int main(int argc, char *argv[]) {
 }
 
 STATE recieveAcks() {
-    //Packet ackPacket;
+    Packet ackPacket;
+    int rrNum;
+
     while (selectCall(connection.socket, 0) != SELECT_TIMEOUT) {
-        //ackPacket =
+        ackPacket = recievePacket(&connection);
+
+        if (bottom < rrNum) bottom = rrNum;
     }
-    return DONE;
+    return DATA;
 }
 
 STATE sendData(Packet *filePackets) {
-    if (lower < upper) {
+    if (lower < upper && lower < totalPackets) {
         sendPacket(connection, *filePackets);
         filePackets++;
         lower++;
-    } 
+    } else if (lower == totalPackets) {
+        printf("done sending data, exitting\n");
+        return DONE;
+    }
 
     if (selectCall(connection.socket, 0) == SELECT_TIMEOUT) {
         if (lower < upper) 
             return sendData(filePackets);
         else // have to select 1 sec for acks
             printf("have to select 1 sec for acks\n");
-    } else {
+    } else {  // theres acks to process
         return ACK;
     }
     printf("WARNING should never get here, exitting\n");
@@ -114,7 +121,7 @@ STATE sendWindowSize(int window) {
     window = htonl(window);
     packet = createPacket(seq_num++, FLAG_WINDOW, (char *)&window, sizeof(int));
     print_packet(packet.data, packet.size - HDR_LEN);
-    return stopAndWait(packet, 10, FLAG_WINDOW_ACK, DONE);
+    return stopAndWait(packet, 10, FLAG_WINDOW_ACK, DATA);
 }
 
 STATE sendFilename(char *localFile, char *remoteFile) {

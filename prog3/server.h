@@ -9,5 +9,6 @@ char *pktToString(Packet packet);
 void processClient(int socket);
 STATE recieveFilename();
 STATE recieveWindow();
+STATE recieveData();
 
 #endif
