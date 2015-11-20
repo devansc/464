@@ -10,14 +10,14 @@
  *  |  seqN   | cksm|flg| size|   DATA
  */
 void initHeader(Packet *pkt) {
-    char *data = pkt->payload;
+    char *pload = pkt->payload;
     uint32_t seq_num = htonl(pkt->seq_num);
     uint16_t size = htons(pkt->size);
 
-    memcpy(data, &seq_num, 4);
-    memcpy(data + 4, &(pkt->checksum), 2);
-    memcpy(data + 6, &(pkt->flag), 1);
-    memcpy(data + 7, &size, 2);
+    memcpy(pload, &seq_num, 4);
+    memcpy(pload + 4, &(pkt->checksum), 2);
+    memcpy(pload + 6, &(pkt->flag), 1);
+    memcpy(pload + 7, &size, 2);
 }
 
 Packet createPacket(uint32_t seq_num, int flag, char *payload, int size_payload) {
@@ -52,7 +52,7 @@ void print_packet(void * start, int bytes) {
 
 void sendPacket(Connection connection, Packet packet) {
     //printf("sending packet %s\n", packet.data);
-    //printf("sending packet to %s\n", inet_ntoa(connection.address.sin_addr));
+    printf("sending packet to %s\n", inet_ntoa(connection.address.sin_addr));
     print_packet(packet.payload, packet.size);
     if (sendtoErr(connection.socket, packet.payload, packet.size, 0, (struct sockaddr*) &connection.address, connection.addr_len) < 0) {
         perror("send call failed");
@@ -112,7 +112,7 @@ Packet recievePacket(Connection *connection) {
     } else if (message_len == 0) {
         exit(0);   // client exitted
     }
-    printf("port now %d\n", connection->address.sin_port);
+    //printf("port now %d\n", connection->address.sin_port);
     //printf("connection after recieve %s\n", inet_ntoa(connection->address.sin_addr));
     return fromPayload(payload);
 }

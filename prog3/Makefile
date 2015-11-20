@@ -35,14 +35,14 @@ echo:
 	@echo "*** Building $@"
 	$(CC) -c $(CFLAGS) $< -o $@ $(LIBS)
 
-rcopy: rcopy.cpp networks.cpp
+rcopy: rcopy.cpp networks.cpp networks.h rcopy.h
 	@echo "-------------------------------"
 	@echo "*** Linking $@ with library $(LIBNAME)... "
 	$(CC) $(CFLAGS) -o $@ $^ $(LIBNAME) $(LIBS)
 	@echo "*** Linking Complete!"
 	@echo "-------------------------------"
 
-server: server.cpp networks.cpp
+server: server.cpp networks.cpp networks.h rcopy.h
 	@echo "-------------------------------"
 	@echo "*** Linking $@ with library $(LIBNAME)... "
 	$(CC) $(CFLAGS) -o $@ $^ $(LIBNAME) $(LIBS)

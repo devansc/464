@@ -15,6 +15,8 @@
 int seq_num;
 Connection connection;
 FILE *outputFile; 
+uint32_t windowSize;
+uint32_t windowExpected;
 
 int main (int argc, char **argv) {
     int connectionSocket;
@@ -74,6 +76,22 @@ void processClient(int socket) {
 
 }
 
+void sendAck(int rrNum) {
+    Packet ackPacket;
+    
+    printf("sending ack rr %d\n", rrNum);
+    rrNum = htonl(rrNum);
+    ackPacket = createPacket(seq_num++, FLAG_RR, (char *)&rrNum, sizeof(int));  
+    //printf("sending packet ");
+    //print_packet(ackPacket.data, ackPacket.size - HDR_LEN);
+    sendPacket(connection, ackPacket);
+}
+
+void printToFile(Packet recvPacket) {
+    fprintf(outputFile, recvPacket.data);
+    printf("got data %s\n", recvPacket.data);
+}
+
 STATE recieveData() {
     Packet recvPacket;
 
@@ -83,14 +101,20 @@ STATE recieveData() {
     }
 
     recvPacket = recievePacket(&connection); // need to buffer
-    fprintf(outputFile, recvPacket.data);
-    return DONE;// should be ACK
+    if (recvPacket.seq_num == windowExpected) {
+        printToFile(recvPacket);
+        windowExpected++;
+        sendAck(recvPacket.seq_num + 1);
+        return DATA;
+    } else
+        printf("recieved packet %d, expected %d\n", recvPacket.seq_num, windowExpected);
+    return ACK;// should be ACK
 }
 
 STATE recieveFilename() {
     Packet packet = recievePacket(&connection);
-    Packet ackPacket;
     char *filename;
+    int rrNum;
 
     //printf("created connection socket %d, address %s\n", connection.socket, inet_ntoa(connection.address->sin_addr));
 
@@ -98,9 +122,10 @@ STATE recieveFilename() {
     case FLAG_FILENAME: 
         filename = strdup(packet.data);
         printf("filename recieved %s\n", filename);
-        ackPacket = createPacket(seq_num++, FLAG_FILENAME_ACK, NULL, 0);  
-        sendPacket(connection, ackPacket);
         outputFile = fopen(filename, "w");
+        rrNum = packet.seq_num + 1;
+        printf("filename seq_num is %u\n", packet.seq_num);
+        sendAck(rrNum);
         return WINDOW;
     default:
         printf("Expected filename packet, recieved packet flag %d\n", packet.flag);
@@ -113,16 +138,16 @@ STATE recieveFilename() {
 
 STATE recieveWindow() {
     Packet packet = recievePacket(&connection);
-    Packet ackPacket;
-    int window;
+    int rrNum;
 
     switch (packet.flag) {
     case FLAG_WINDOW: 
-        window = *(int *)packet.data;
-        window = ntohl(window);
-        printf("window recieved %d\n", window);
-        ackPacket = createPacket(seq_num++, FLAG_WINDOW_ACK, NULL, 0); 
-        sendPacket(connection, ackPacket);
+        windowSize = *(uint32_t *)packet.data;
+        windowSize = ntohl(windowSize);
+        printf("windowSize recieved %d\n", windowSize);
+        rrNum = packet.seq_num + 1;
+        sendAck(rrNum);
+        windowExpected = rrNum;
         return DATA;
     default:
         printf("Expected window packet, recieved packet flag %d\n", packet.flag);
