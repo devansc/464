@@ -18,7 +18,8 @@ Connection connection;
 int bottom;
 int lower;
 int upper;
-int totalPackets;
+FILE *transferFile;
+int totalFilePackets;
 
 int main(int argc, char *argv[]) {
     STATE curState;
@@ -52,7 +53,7 @@ int main(int argc, char *argv[]) {
             break;
 
         case DATA:
-            totalPackets = 1;
+            totalFilePackets = 1;
             packet = createPacket(seq_num++, FLAG_DATA, packetData, 2);
             filePackets = &packet;
             curState = sendData(filePackets);
@@ -87,11 +88,11 @@ STATE recieveAcks() {
 }
 
 STATE sendData(Packet *filePackets) {
-    if (lower < upper && lower < totalPackets) {
+    if (lower < upper && lower < totalFilePackets) {
         sendPacket(connection, *filePackets);
         filePackets++;
         lower++;
-    } else if (lower == totalPackets) {
+    } else if (lower == totalFilePackets) {
         printf("done sending data, exitting\n");
         return DONE;
     }
@@ -126,7 +127,6 @@ STATE sendWindowSize(int window) {
 
 STATE sendFilename(char *localFile, char *remoteFile) {
     Packet packet;
-    FILE *transferFile;
 
     transferFile = fopen(localFile, "r");
     if (transferFile == NULL) {
