@@ -20,7 +20,7 @@ void initHeader(Packet *pkt) {
     memcpy(pload + 7, &size, 2);
 }
 
-Packet createPacket(uint32_t seq_num, int flag, char *payload, int size_payload) {
+Packet createPacket(uint32_t seq_num, int flag, unsigned char *payload, int size_payload) {
     Packet packet;
 
     packet.seq_num = seq_num;
@@ -51,9 +51,8 @@ void print_packet(void * start, int bytes) {
 }
 
 void sendPacket(Connection connection, Packet packet) {
-    //printf("sending packet %s\n", packet.data);
-    printf("sending packet to %s\n", inet_ntoa(connection.address.sin_addr));
-    print_packet(packet.payload, packet.size);
+    //printf("sending packet to %s\n", inet_ntoa(connection.address.sin_addr));
+    //print_packet(packet.payload, packet.size);
     if (sendtoErr(connection.socket, packet.payload, packet.size, 0, (struct sockaddr*) &connection.address, connection.addr_len) < 0) {
         perror("send call failed");
         exit(-1);

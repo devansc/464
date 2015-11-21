@@ -40,7 +40,6 @@ int main (int argc, char **argv) {
 
 void processClient(int socket) {
     STATE curState;
-    printf("talking to client on socket %d\n", socket);
 
     curState = FILENAME;
     seq_num = 0;
@@ -67,9 +66,11 @@ void processClient(int socket) {
             break;
 
         case EOFCONFIRM:
+            recieveFilename();
             break;
 
         case DONE:
+            fclose(outputFile);
             break;
         }
     }
@@ -81,9 +82,7 @@ void sendAck(int rrNum) {
     
     printf("sending ack rr %d\n", rrNum);
     rrNum = htonl(rrNum);
-    ackPacket = createPacket(seq_num++, FLAG_RR, (char *)&rrNum, sizeof(int));  
-    //printf("sending packet ");
-    //print_packet(ackPacket.data, ackPacket.size - HDR_LEN);
+    ackPacket = createPacket(seq_num++, FLAG_RR, (unsigned char *)&rrNum, sizeof(int));  
     sendPacket(connection, ackPacket);
 }
 
@@ -101,11 +100,15 @@ STATE recieveData() {
     }
 
     recvPacket = recievePacket(&connection); // need to buffer
-    if (recvPacket.seq_num == windowExpected) {
+    if (recvPacket.flag == FLAG_DATA && recvPacket.seq_num == windowExpected) {
         printToFile(recvPacket);
         windowExpected++;
         sendAck(recvPacket.seq_num + 1);
         return DATA;
+    } else if (recvPacket.flag = FLAG_EOF) {
+        printf("EOF flag recieved\n");
+        sendAck(recvPacket.seq_num + 1);
+        return DONE;
     } else
         printf("recieved packet %d, expected %d\n", recvPacket.seq_num, windowExpected);
     return ACK;// should be ACK
@@ -116,22 +119,22 @@ STATE recieveFilename() {
     char *filename;
     int rrNum;
 
-    //printf("created connection socket %d, address %s\n", connection.socket, inet_ntoa(connection.address->sin_addr));
-
     switch (packet.flag) {
     case FLAG_FILENAME: 
         filename = strdup(packet.data);
-        printf("filename recieved %s\n", filename);
         outputFile = fopen(filename, "w");
+        if (outputFile == NULL) {
+            fprintf(stderr, "Couldn't open %s for writing\n", filename);
+            exit(0);
+        }
+        printf("opened file %s for writing\n", filename);
         rrNum = packet.seq_num + 1;
-        printf("filename seq_num is %u\n", packet.seq_num);
         sendAck(rrNum);
         return WINDOW;
     default:
         printf("Expected filename packet, recieved packet flag %d\n", packet.flag);
         break;
     }
-    //printf("recieved filename %s\n", pktToString(packet));
 
     return DONE;
 }
@@ -144,7 +147,6 @@ STATE recieveWindow() {
     case FLAG_WINDOW: 
         windowSize = *(uint32_t *)packet.data;
         windowSize = ntohl(windowSize);
-        printf("windowSize recieved %d\n", windowSize);
         rrNum = packet.seq_num + 1;
         sendAck(rrNum);
         windowExpected = rrNum;
@@ -153,7 +155,6 @@ STATE recieveWindow() {
         printf("Expected window packet, recieved packet flag %d\n", packet.flag);
         break;
     }
-    //printf("recieved window %s\n", pktToString(packet));
 
     return WINDOW;
 }
@@ -196,7 +197,6 @@ int udp_recv_setup(int port)
     }
 
     printf("socket has port %d \n", ntohs(local.sin_port));
-    printf("ip %s \n", inet_ntoa(local.sin_addr));
 
     return server_socket;
 }

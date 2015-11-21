@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <math.h>
 
 #include "networks.h"
 #include "rcopy.h"
@@ -14,7 +15,7 @@
 #define DEFAULT_TIMEOUT 1
 #define NUM_EST_PCKTS 2
 
-int seq_num = 0;
+uint32_t seq_num;
 Connection connection;   
 uint32_t bottomWindow;
 uint32_t lowerWindow;
@@ -25,11 +26,8 @@ uint32_t windowSize;
 
 int main(int argc, char *argv[]) {
     STATE curState;
-    Packet packet; // for testing
-    Packet packet1; // for testing
-    Packet packet2; // for testing
-    char *packetData[] = {"hey there", " how are you", "\n\n:)"};
     Packet *filePackets; // for testing
+    int sizeFile;
 
     if (argc != 6) {
         printf("usage %s [local-file] [remote-file] [window-size] [remote-machine] [remote-port]\n", argv[0]);
@@ -44,6 +42,10 @@ int main(int argc, char *argv[]) {
     sendErr_init(0, DROP_OFF, FLIP_OFF, DEBUG_ON, RSEED_OFF);
     // 4 is remote-machine, 5 is remote-port
     connection = udp_send_setup(argv[4], argv[5]);
+
+    seq_num = 0;
+    sizeFile = openFile(argv[1]);
+    filePackets = createFilePackets(argv[2], sizeFile); 
     
     //printf("connection socket %d, address %s\n", connection.socket, inet_ntoa(connection.address->sin_addr));
 
@@ -53,19 +55,16 @@ int main(int argc, char *argv[]) {
         switch (curState) {
 
         case FILENAME:
-            curState = sendFilename(argv[1], argv[2]);
+            curState =  stopAndWait(filePackets[0], 10, filePackets[0].seq_num + 1, WINDOW);
             break;
 
         case WINDOW:
-            curState = sendWindowSize();
+            lowerWindow = bottomWindow = 2;
+            upperWindow = windowSize + 2;
+            curState =  stopAndWait(filePackets[1], 10, filePackets[1].seq_num + 1, DATA);
             break;
 
         case DATA:
-            totalFilePackets = 3;
-            packet = createPacket(seq_num++, FLAG_DATA, packetData[0], strlen(packetData[0]) + 1);
-            packet1 = createPacket(seq_num++, FLAG_DATA, packetData[1], strlen(packetData[1]) + 1);
-            packet2 = createPacket(seq_num++, FLAG_DATA, packetData[2], strlen(packetData[2]) + 1);
-            filePackets = &packet;
             curState = sendData(filePackets);
             break;
 
@@ -74,6 +73,7 @@ int main(int argc, char *argv[]) {
             break;
 
         case EOFCONFIRM:
+            curState = sendEOF();
             break;
 
         case DONE:
@@ -83,6 +83,50 @@ int main(int argc, char *argv[]) {
 
     printf("done\n");
     return 0;
+}
+
+//returns number of bytes of file
+int openFile(char *filename) {
+    long size;
+    transferFile = fopen(filename, "r");
+    if (transferFile == NULL) {
+        fprintf(stderr, "File %s does not exist, exitting", filename);
+        exit(1);
+    }
+    fseek(transferFile, 0L, SEEK_END);
+    size = ftell(transferFile);
+    printf(" SIZE IS %ld\n", size);
+    fseek(transferFile, 0L, SEEK_SET);
+    return (int)size;
+}
+
+Packet *createFilePackets(char *filename, int sizeFile) {
+    Packet pkt;
+    int buf_size = 10;
+    unsigned char buffer[buf_size];
+    int bytes_read = 0;
+    Packet filenamePacket;
+    Packet windowPacket;
+    int netWindow;
+    size_t packetSize = sizeof(Packet);
+    Packet *filePackets;
+   
+    totalFilePackets = ceil(((float) sizeFile) / buf_size) + 2;
+    filePackets = (Packet *)malloc(sizeof(Packet) * totalFilePackets);
+
+    // add filename and window packets
+    filenamePacket = createPacket(seq_num, FLAG_FILENAME, (unsigned char *) filename, strlen(filename));
+    memcpy(filePackets + seq_num++, &filenamePacket, packetSize);
+    netWindow = htonl(windowSize);
+    windowPacket = createPacket(seq_num, FLAG_WINDOW, (unsigned char *)&netWindow, sizeof(int));
+    memcpy(filePackets + seq_num++, &windowPacket, packetSize);
+
+    //process file
+    while ((bytes_read = fread(buffer, sizeof(unsigned char), buf_size, transferFile)) > 0) {
+        pkt = createPacket(seq_num, FLAG_DATA, (unsigned char *)buffer, bytes_read);
+        memcpy(filePackets + seq_num++, &pkt, packetSize);
+    }
+    return filePackets;
 }
 
 STATE recieveAcks(Packet *filePackets) {
@@ -96,8 +140,8 @@ STATE recieveAcks(Packet *filePackets) {
 
         //TODO run checksum
 
-        rrNum = ackPacket.seq_num;
-        printf("recieved rrnum %d so setting bottom to %d, lower %d, upper %d\n", rrNum, rrNum, lowerWindow, rrNum + windowSize);
+        rrNum = getRRSeqNum(ackPacket);
+        printf("recieved rrnum %d so setting bottom to %d, lowerWindow %d, upper %d\n", rrNum, rrNum, lowerWindow, rrNum + windowSize);
 
         if (bottomWindow < rrNum) {
             bottomWindow = rrNum;
@@ -117,57 +161,27 @@ STATE recieveAcks(Packet *filePackets) {
 }
 
 STATE sendData(Packet *filePackets) {
+    printf("running send data, bottom = %d, lower = %d, upper = %d, total file packets %d\n", bottomWindow, lowerWindow, upperWindow, totalFilePackets);
     if (lowerWindow < upperWindow && lowerWindow < totalFilePackets) {
-        sendPacket(connection, *filePackets);
-        printf("sent data %s\n", (*filePackets).data);
-        filePackets++;
+        sendPacket(connection, filePackets[lowerWindow]);
+        printf("sent data %s\n", filePackets[lowerWindow].data);
         lowerWindow++;
     } else if (lowerWindow == totalFilePackets) {
-        printf("done sending data, exitting\n");
-        return DONE;
+        printf("done sending data, sending eof\n");
+        return EOFCONFIRM;
     }
 
-    if (selectCall(connection.socket, 0) == SELECT_TIMEOUT) {
-        if (lowerWindow < upperWindow) 
-            return sendData(filePackets);
-        else // have to select 1 sec for acks
-            return ACK;
-    } else {  // theres acks to process
+    if (selectCall(connection.socket, 0) == SELECT_TIMEOUT && lowerWindow < upperWindow)  {
+        printf("select didn't find data, going to send another packet\n");
+        return DATA;
+    }
+    else // acks to process, or have to have to select 1 sec for acks
         return ACK;
-    }
-    printf("WARNING should never get here, exitting\n");
-    return DONE; 
 }
 
-
-
-STATE sendWindowSize() {
-    Packet packet;
-    int netWindow;
-
-    bottomWindow = 0;
-    lowerWindow = 0;
-    upperWindow = windowSize;
-
-    //printf("sending window %d\n", windowSize);
-    netWindow = htonl(windowSize);
-    packet = createPacket(seq_num++, FLAG_WINDOW, (char *)&netWindow, sizeof(int));
-    //print_packet(packet.data, packet.size - HDR_LEN);
-    return stopAndWait(packet, 10, packet.seq_num + 1, DATA);
-}
-
-STATE sendFilename(char *localFile, char *remoteFile) {
-    Packet packet;
-
-    transferFile = fopen(localFile, "r");
-    if (transferFile == NULL) {
-        fprintf(stderr, "File %s does not exist, exitting", localFile);
-        exit(1);
-    }
-
-    printf("sending filename %s to port %d\n", remoteFile, ntohs(connection.address.sin_port));
-    packet = createPacket(seq_num++, FLAG_FILENAME, remoteFile, strlen(remoteFile));
-    return stopAndWait(packet, 10, packet.seq_num + 1, WINDOW);
+STATE sendEOF() {
+    Packet EOFPacket = createPacket(seq_num++, FLAG_EOF, NULL, 0);
+    return stopAndWait(EOFPacket, 10, EOFPacket.seq_num + 1, WINDOW);
 }
 
 STATE stopAndWait(Packet packet, int numTriesLeft, int rrExpected, STATE nextState) {
@@ -188,7 +202,7 @@ STATE stopAndWait(Packet packet, int numTriesLeft, int rrExpected, STATE nextSta
     //printf("packet is ");
     //print_packet(ackPacket.data, ackPacket.size-HDR_LEN -1);
     if (getRRSeqNum(ackPacket) == rrExpected) {
-        printf("done in %d tries\n", 10 - numTriesLeft);
+        //printf("done in %d tries\n", 10 - numTriesLeft);
         return nextState;
     }
     return stopAndWait(packet, numTriesLeft, rrExpected, nextState);  // will send a duplicate packet that could be unnecessary
@@ -196,7 +210,6 @@ STATE stopAndWait(Packet packet, int numTriesLeft, int rrExpected, STATE nextSta
 
 int getRRSeqNum(Packet ackPacket) {
     int *rrNum = (int*)ackPacket.data;
-    printf("rrnum is %d\n", *rrNum);
     return ntohl(*rrNum);
 }
 
@@ -233,7 +246,7 @@ Connection udp_send_setup(char *host_name, char *port) {
     newConnection.socket = socket_num;
     newConnection.address = remote;
     newConnection.addr_len = sockaddrinSize;
-    printf("created connection socket %d, address %s\n", socket_num, inet_ntoa(remote.sin_addr));
+    //printf("created connection socket %d, address %s\n", socket_num, inet_ntoa(remote.sin_addr));
 
     return newConnection;
 }

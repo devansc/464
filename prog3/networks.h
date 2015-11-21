@@ -12,6 +12,7 @@
 #define FLAG_SREJ 4
 #define FLAG_FILENAME 6
 #define FLAG_WINDOW 7
+#define FLAG_EOF 8
 
 enum SELECTVAL {
     SELECT_HAS_DATA, SELECT_TIMEOUT
@@ -39,7 +40,7 @@ struct packet {
 typedef struct packet Packet;
 
 
-Packet createPacket(uint32_t seq_num, int flag, char *payload, int size_payload);
+Packet createPacket(uint32_t seq_num, int flag, unsigned char *payload, int size_payload);
 Packet fromPayload(char *payload);
 char *getData(Packet p);
 Packet recievePacket(Connection *connection);
