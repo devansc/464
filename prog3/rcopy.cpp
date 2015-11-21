@@ -176,12 +176,13 @@ STATE sendData(Packet *filePackets) {
         return DATA;
     }
     else // acks to process, or have to have to select 1 sec for acks
+        printf("select immediately found data or waiting on acks\n");
         return ACK;
 }
 
 STATE sendEOF() {
     Packet EOFPacket = createPacket(seq_num++, FLAG_EOF, NULL, 0);
-    return stopAndWait(EOFPacket, 10, EOFPacket.seq_num + 1, WINDOW);
+    return stopAndWait(EOFPacket, 10, EOFPacket.seq_num + 1, DONE);
 }
 
 STATE stopAndWait(Packet packet, int numTriesLeft, int rrExpected, STATE nextState) {
