@@ -13,6 +13,7 @@
 #define FLAG_FILENAME 6
 #define FLAG_WINDOW 7
 #define FLAG_EOF 8
+#define FLAG_QUIT 9
 
 enum SELECTVAL {
     SELECT_HAS_DATA, SELECT_TIMEOUT

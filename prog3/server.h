@@ -10,5 +10,7 @@ void processClient(int socket);
 STATE recieveFilename();
 STATE recieveWindow();
 STATE recieveData();
+STATE eofConfirmQuit();
+void sendResponse(int flag, int rrNum);
 
 #endif

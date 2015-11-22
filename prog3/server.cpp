@@ -17,6 +17,11 @@ Connection connection;
 FILE *outputFile; 
 uint32_t windowSize;
 uint32_t windowExpected;
+Packet *buffer;
+uint32_t bottomWindow;
+uint32_t lowerWindow;
+uint32_t upperWindow;
+int quiet = 0;
 
 int main (int argc, char **argv) {
     int connectionSocket;
@@ -56,6 +61,7 @@ void processClient(int socket) {
 
         case WINDOW:
             curState = recieveWindow();
+            buffer = (Packet *) malloc(sizeof(Packet) * windowSize);
             break;
 
         case DATA:
@@ -65,8 +71,8 @@ void processClient(int socket) {
         case ACK:
             break;
 
-        case EOFCONFIRM:
-            recieveFilename();
+        case EOFCONFIRM: // EOF already seen, just waiting for 3rd handshake
+            curState = eofConfirmQuit();
             break;
 
         case DONE:
@@ -74,15 +80,32 @@ void processClient(int socket) {
             break;
         }
     }
-
 }
 
-void sendAck(int rrNum) {
+STATE eofConfirmQuit() {
+    Packet quitPacket;
+
+    if (selectCall(connection.socket, DEFAULT_TIMEOUT) == SELECT_TIMEOUT) {
+        printf("timed out recieving eof, exitting\n");
+        return DONE;
+    }
+
+    quitPacket = recievePacket(&connection);
+    switch(quitPacket.flag) {
+    case FLAG_QUIT:
+        return DONE;
+    default:
+        printf("recieved flag %d instead of flag_quit.. fix this\n");
+        return DONE;
+    }
+}
+
+void sendResponse(int flag, int rrNum) {
     Packet ackPacket;
     
     printf("sending ack rr %d\n", rrNum);
     rrNum = htonl(rrNum);
-    ackPacket = createPacket(seq_num++, FLAG_RR, (unsigned char *)&rrNum, sizeof(int));  
+    ackPacket = createPacket(seq_num++, flag, (unsigned char *)&rrNum, sizeof(int));  
     sendPacket(connection, ackPacket);
 }
 
@@ -103,15 +126,24 @@ STATE recieveData() {
     if (recvPacket.flag == FLAG_DATA && recvPacket.seq_num == windowExpected) {
         printToFile(recvPacket);
         windowExpected++;
-        sendAck(recvPacket.seq_num + 1);
+        sendResponse(FLAG_RR, recvPacket.seq_num + 1);
+        quiet = 0;
+        return DATA;
+    } else if (recvPacket.flag == FLAG_DATA && recvPacket.seq_num > windowExpected) {
+        memcpy(buffer + recvPacket.seq_num % windowExpected, &recvPacket, sizeof(Packet));
+        if (!quiet) sendResponse(FLAG_SREJ, recvPacket.seq_num + 1);
+        quiet = 1;
+        return DATA;
+    } else if (recvPacket.flag == FLAG_DATA && recvPacket.seq_num < windowExpected) {
+        if (!quiet) sendResponse(FLAG_RR, recvPacket.seq_num + 1);
         return DATA;
     } else if (recvPacket.flag = FLAG_EOF) {
         printf("EOF flag recieved\n");
-        sendAck(recvPacket.seq_num + 1);
-        return DONE;
+        if (!quiet) sendResponse(FLAG_RR, recvPacket.seq_num + 1);
+        return EOFCONFIRM;
     } else
         printf("recieved packet %d, expected %d\n", recvPacket.seq_num, windowExpected);
-    return ACK;// should be ACK
+    return ACK;
 }
 
 STATE recieveFilename() {
@@ -129,7 +161,7 @@ STATE recieveFilename() {
         }
         printf("opened file %s for writing\n", filename);
         rrNum = packet.seq_num + 1;
-        sendAck(rrNum);
+        sendResponse(FLAG_RR, rrNum);
         return WINDOW;
     default:
         printf("Expected filename packet, recieved packet flag %d\n", packet.flag);
@@ -148,7 +180,7 @@ STATE recieveWindow() {
         windowSize = *(uint32_t *)packet.data;
         windowSize = ntohl(windowSize);
         rrNum = packet.seq_num + 1;
-        sendAck(rrNum);
+        sendResponse(FLAG_RR, rrNum);
         windowExpected = rrNum;
         return DATA;
     default:

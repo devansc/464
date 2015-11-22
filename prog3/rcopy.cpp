@@ -74,6 +74,7 @@ int main(int argc, char *argv[]) {
 
         case EOFCONFIRM:
             curState = sendEOF();
+            sendDone();
             break;
 
         case DONE:
@@ -83,6 +84,12 @@ int main(int argc, char *argv[]) {
 
     printf("done\n");
     return 0;
+}
+
+void sendDone() {
+    Packet eofPacket = createPacket(seq_num++, FLAG_QUIT, NULL, 0);
+    printf("sending done packet\n");
+    sendPacket(connection, eofPacket);
 }
 
 //returns number of bytes of file
