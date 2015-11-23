@@ -2,6 +2,7 @@
 #include <arpa/inet.h>
 #include <string.h>
 #include <stdlib.h>
+
 #include "networks.h"
 #include "cpe464.h"
 
@@ -113,5 +114,6 @@ Packet recievePacket(Connection *connection) {
     }
     //printf("port now %d\n", connection->address.sin_port);
     //printf("connection after recieve %s\n", inet_ntoa(connection->address.sin_addr));
+    printf("recieved message len %d\n", message_len);
     return fromPayload(payload);
 }

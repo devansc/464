@@ -3,7 +3,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-#define MAX_LEN_PKT 1100
+#define MAX_LEN_PKT 1401
 #define HDR_LEN 9
 
 #define FLAG_DATA 1
@@ -14,6 +14,7 @@
 #define FLAG_WINDOW 7
 #define FLAG_EOF 8
 #define FLAG_QUIT 9
+#define FLAG_ERR_REMOTE 10
 
 enum SELECTVAL {
     SELECT_HAS_DATA, SELECT_TIMEOUT
@@ -26,7 +27,7 @@ enum STATE {
 struct connection {
     int socket;
     struct sockaddr_in address;
-    size_t addr_len;
+    socklen_t addr_len;
 };
 typedef struct connection Connection;
 

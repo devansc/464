@@ -1,0 +1,7 @@
+* send buffer size over with windowSize    // mem leaks!!
+* client opens new socket when sending filename and times out
+* handle multiple clients at the same time - fork
+* sendtoErr recievefromErr on server side!!
+* run checksum
+* TESTING
+

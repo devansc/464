@@ -27,6 +27,23 @@ int quiet = 0;
 int main (int argc, char **argv) {
     int connectionSocket;
     int port = 0;
+    int errPercent;
+
+    if (argc < 2 || argc > 3) {
+        printf("usage %s [error-percent] [optional-port]\n", argv[0]);
+        exit(-1);
+    }
+    errPercent = atof(argv[1]);
+    if (errPercent < 0 || errPercent > 1) {
+        fprintf(stderr, "Error error-percent must be greater than 0, less than 1");
+        exit(-1);
+    }
+
+    if (argc > 2)
+        port = atoi(argv[2]);
+
+    //sendErr_init(errPercent, DROP_ON, FLIP_OFF, DEBUG_ON, RSEED_ON);
+
     connectionSocket = udp_recv_setup(port);
 
     while (1) {
@@ -240,16 +257,21 @@ STATE recieveData() {
 
 STATE recieveFilename() {
     Packet packet = recievePacket(&connection);
+    Packet errPacket;
     char *filename;
     int rrNum;
+    int newSocket = udp_recv_setup(0);
+    connection.socket = newSocket;
 
     switch (packet.flag) {
     case FLAG_FILENAME: 
         filename = strdup(packet.data);
         outputFile = fopen(filename, "w");
         if (outputFile == NULL) {
+            errPacket = createPacket(seq_num++, FLAG_ERR_REMOTE, NULL, 0);  
+            sendPacket(connection, errPacket);
             fprintf(stderr, "Couldn't open %s for writing\n", filename);
-            exit(0);
+            return DONE;
         }
         printf("opened file %s for writing\n", filename);
         rrNum = packet.seq_num + 1;

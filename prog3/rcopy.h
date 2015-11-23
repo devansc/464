@@ -14,5 +14,6 @@ int getRRSeqNum(Packet ackPacket);
 int openFile(char *filename);
 void sendDone();
 Packet *createFilePackets(char *filename, int sizeFile);
+void checkAndGetArgs(int argc, char *argv[]);
 
 #endif
