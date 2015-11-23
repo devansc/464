@@ -216,7 +216,7 @@ STATE recieveData() {
         } else return writeBufToFile();
         return DATA;
     } else if (recvPacket.seq_num > windowExpected) {
-        int bufferPos = recvPacket.seq_num % windowExpected;
+        int bufferPos = (recvPacket.seq_num - windowExpected) % windowSize;
         if (buffer == NULL) 
             buffer = (Packet *) malloc(sizeof(Packet) * windowSize);
         printf("buffering data %d to bufferPos %d -- %s\n",recvPacket.seq_num, bufferPos, recvPacket.data);

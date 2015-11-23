@@ -39,7 +39,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Error window size must be greater than 0");
         exit(-1);
     }
-    sendErr_init(.15, DROP_ON, FLIP_OFF, DEBUG_ON, RSEED_OFF);
+    sendErr_init(.15, DROP_ON, FLIP_OFF, DEBUG_ON, RSEED_ON);
     // 4 is remote-machine, 5 is remote-port
     connection = udp_send_setup(argv[4], argv[5]);
 
@@ -97,7 +97,7 @@ STATE getRestAcks() {
     if (selectCall(connection.socket, DEFAULT_TIMEOUT) == SELECT_TIMEOUT) {
         sendPacket(connection, filePackets[bottomWindow]);
         printf("timed out getting last acks\n");
-        return DONE;
+        return getRestAcks();
     }
     
     recvPacket = recievePacket(&connection);
@@ -111,6 +111,9 @@ STATE getRestAcks() {
     } else {
         printf("recieved srej %d\n", rrNum);
         sendPacket(connection, filePackets[rrNum]);
+        bottomWindow = rrNum;
+        upperWindow = rrNum + windowSize;
+        return DATA;
     }
     return getRestAcks();
 }
