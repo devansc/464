@@ -39,7 +39,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Error window size must be greater than 0");
         exit(-1);
     }
-    sendErr_init(0, DROP_OFF, FLIP_OFF, DEBUG_ON, RSEED_OFF);
+    sendErr_init(.15, DROP_ON, FLIP_OFF, DEBUG_ON, RSEED_OFF);
     // 4 is remote-machine, 5 is remote-port
     connection = udp_send_setup(argv[4], argv[5]);
 
@@ -148,12 +148,14 @@ STATE recieveAcks(Packet *filePackets) {
         //TODO run checksum
 
         rrNum = getRRSeqNum(ackPacket);
+        bottomWindow = rrNum;
+        upperWindow = rrNum + windowSize;
+        if (ackPacket.flag == FLAG_SREJ) {
+            printf("recieved srej %d so setting bottom to %d, lowerWindow %d, upper %d\n", rrNum, bottomWindow, lowerWindow, upperWindow);
+            sendPacket(connection, filePackets[getRRSeqNum(ackPacket)]);
+            return ACK;
+        } 
         printf("recieved rrnum %d so setting bottom to %d, lowerWindow %d, upper %d\n", rrNum, rrNum, lowerWindow, rrNum + windowSize);
-
-        if (bottomWindow < rrNum) {
-            bottomWindow = rrNum;
-            upperWindow = rrNum + windowSize;
-        }
     }
     if (foundAcks || lowerWindow < upperWindow) // if lower < upper keep sending data
         return DATA;
@@ -161,7 +163,7 @@ STATE recieveAcks(Packet *filePackets) {
     // if got to here, then need to wait for 1 sec on acks, then send 
     // bottom of window if it times out. if select finds data, process ack
     if (selectCall(connection.socket, 1) == SELECT_TIMEOUT) { 
-        printf("WARNING sending bottom of window\n");
+        printf("WARNING sending bottom of window %d\n", bottomWindow);
         sendPacket(connection, filePackets[bottomWindow]);
     } 
     return ACK;

@@ -21,6 +21,7 @@ Packet *buffer;
 uint32_t bottomWindow;
 uint32_t lowerWindow;
 uint32_t upperWindow;
+uint32_t highestPktSeen;
 int quiet = 0;
 
 int main (int argc, char **argv) {
@@ -61,7 +62,7 @@ void processClient(int socket) {
 
         case WINDOW:
             curState = recieveWindow();
-            buffer = (Packet *) malloc(sizeof(Packet) * windowSize);
+            buffer = NULL;
             break;
 
         case DATA:
@@ -102,16 +103,75 @@ STATE eofConfirmQuit() {
 
 void sendResponse(int flag, int rrNum) {
     Packet ackPacket;
-    
-    printf("sending ack rr %d\n", rrNum);
+
+    if (flag == FLAG_RR)
+        printf("sending ack rr %d\n", rrNum);
+    else 
+        printf("sending srej %d\n", rrNum);
     rrNum = htonl(rrNum);
     ackPacket = createPacket(seq_num++, flag, (unsigned char *)&rrNum, sizeof(int));  
     sendPacket(connection, ackPacket);
 }
 
+void printBuffer() {
+    Packet *curPkt;
+    printf("printing buffer\n");
+    for (int i = 1; i < windowSize; i++) {
+        printf("  %d  ", i);
+    }
+    printf("\n");
+    for (int i = 1; i < windowSize; i++) {
+        printf(" %d  ", buffer[i].seq_num);
+    }
+    printf("\n");
+    for (int i = 1; i < windowSize; i++) {
+        printf("%.4s ", buffer[i].data);
+    }
+    printf("\n");
+}
+
 void printToFile(Packet recvPacket) {
     fprintf(outputFile, recvPacket.data);
-    printf("got data %s\n", recvPacket.data);
+    printf("writing data %d %s\n",recvPacket.seq_num, recvPacket.data);
+}
+
+void slideWindow(int num) {
+    int i;
+    for (i = 0; i < windowSize - num; i++) {
+        memcpy(buffer+i,buffer+i+num,sizeof(Packet));
+    }
+    for (; i < windowSize; i++) {   // could be simplified to 1 memset
+        memset(buffer+i, 0, sizeof(Packet));
+    }
+    printf("slid window %d\n", num);
+    printBuffer();
+}
+
+void writeBufToFile() {
+    Packet *curPkt;
+    uint32_t i = 1; // already wrote the first packet
+    printf("writing buf to file\n");
+    printBuffer();
+    for ( ; i < windowSize && buffer[i].seq_num != 0; i++) {
+        printToFile(buffer[i]);
+        //free(curPkt);
+        //memset(curPkt, 0, sizeof(Packet));
+    }
+
+    windowExpected = i + windowExpected;
+
+    if (windowExpected < highestPktSeen) {
+        printf("sent SREJ %d after writing buffer\n", windowExpected);
+        sendResponse(FLAG_SREJ, windowExpected);
+        slideWindow(i);
+    } else {
+        printf("sent RR %d after writing buffer\n", windowExpected);
+        sendResponse(FLAG_RR, windowExpected);
+        free(buffer);
+        buffer = NULL;
+        quiet = 0;
+    }
+    printf("windowExpected is now %d\n", windowExpected);
 }
 
 STATE recieveData() {
@@ -122,28 +182,43 @@ STATE recieveData() {
         return DONE;
     }
 
-    recvPacket = recievePacket(&connection); // need to buffer
+    printf("recieving packet\n");
+    recvPacket = recievePacket(&connection); 
+    if (recvPacket.seq_num > highestPktSeen) 
+        highestPktSeen = recvPacket.seq_num;
+    printf("highest packet seen is %d, quiet %s\n", highestPktSeen, quiet?"true":"false");
+
     if (recvPacket.flag == FLAG_DATA && recvPacket.seq_num == windowExpected) {
         printToFile(recvPacket);
-        windowExpected++;
-        sendResponse(FLAG_RR, recvPacket.seq_num + 1);
-        quiet = 0;
+        if (buffer == NULL) {
+            sendResponse(FLAG_RR, recvPacket.seq_num + 1);
+            windowExpected++;
+        } else writeBufToFile();
         return DATA;
     } else if (recvPacket.flag == FLAG_DATA && recvPacket.seq_num > windowExpected) {
-        memcpy(buffer + recvPacket.seq_num % windowExpected, &recvPacket, sizeof(Packet));
-        if (!quiet) sendResponse(FLAG_SREJ, recvPacket.seq_num + 1);
+        int bufferPos = recvPacket.seq_num % windowExpected;
+        if (buffer == NULL) 
+            buffer = (Packet *) malloc(sizeof(Packet) * windowSize);
+        printf("buffering data %d to bufferPos %d -- %s\n",recvPacket.seq_num, bufferPos, recvPacket.data);
+        memcpy(buffer + bufferPos, &recvPacket, sizeof(Packet));
+        buffer[bufferPos].data = (char *) malloc(recvPacket.size - HDR_LEN);
+        memcpy(buffer[bufferPos].data, recvPacket.data, recvPacket.size - HDR_LEN);
+        printf("buffered data is %s\n", buffer[bufferPos].data);
+        if (!quiet) sendResponse(FLAG_SREJ, windowExpected);
+        printBuffer();
         quiet = 1;
         return DATA;
     } else if (recvPacket.flag == FLAG_DATA && recvPacket.seq_num < windowExpected) {
-        if (!quiet) sendResponse(FLAG_RR, recvPacket.seq_num + 1);
+        printf("recieved %d when expected %d\n", recvPacket.seq_num, windowExpected);
+        if (!quiet) sendResponse(FLAG_RR, windowExpected);
         return DATA;
     } else if (recvPacket.flag = FLAG_EOF) {
         printf("EOF flag recieved\n");
         if (!quiet) sendResponse(FLAG_RR, recvPacket.seq_num + 1);
         return EOFCONFIRM;
     } else
-        printf("recieved packet %d, expected %d\n", recvPacket.seq_num, windowExpected);
-    return ACK;
+        printf("unexpected packet: recieved packet %d, expected %d\n", recvPacket.seq_num, windowExpected);
+    return DONE;
 }
 
 STATE recieveFilename() {
