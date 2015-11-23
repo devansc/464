@@ -106,8 +106,10 @@ void sendResponse(int flag, int rrNum) {
 
     if (flag == FLAG_RR)
         printf("sending ack rr %d\n", rrNum);
-    else 
+    else if (flag == FLAG_SREJ)
         printf("sending srej %d\n", rrNum);
+    else
+        printf("sending flag %d rrNum %d\n", flag, rrNum);
     rrNum = htonl(rrNum);
     ackPacket = createPacket(seq_num++, flag, (unsigned char *)&rrNum, sizeof(int));  
     sendPacket(connection, ackPacket);
@@ -121,13 +123,17 @@ void printBuffer() {
     }
     printf("\n");
     for (int i = 1; i < windowSize; i++) {
-        printf(" %d  ", buffer[i].seq_num);
+        printf(" %d  ", buffer == NULL ? 0 : buffer[i].seq_num);
     }
     printf("\n");
+    /*
     for (int i = 1; i < windowSize; i++) {
-        printf("%.4s ", buffer[i].data);
+        if (buffer != NULL && buffer[i].data != NULL)
+            printf("%.4s ", buffer[i].data);
+        else printf("    ");
     }
     printf("\n");
+    */
 }
 
 void printToFile(Packet recvPacket) {
@@ -137,22 +143,27 @@ void printToFile(Packet recvPacket) {
 
 void slideWindow(int num) {
     int i;
+    // could be simplified to 1 memcpy/memset
     for (i = 0; i < windowSize - num; i++) {
         memcpy(buffer+i,buffer+i+num,sizeof(Packet));
     }
-    for (; i < windowSize; i++) {   // could be simplified to 1 memset
+    for (; i < windowSize; i++) {   
         memset(buffer+i, 0, sizeof(Packet));
     }
     printf("slid window %d\n", num);
     printBuffer();
 }
 
-void writeBufToFile() {
+STATE writeBufToFile() {
     Packet *curPkt;
     uint32_t i = 1; // already wrote the first packet
     printf("writing buf to file\n");
     printBuffer();
-    for ( ; i < windowSize && buffer[i].seq_num != 0; i++) {
+    for ( ; i < windowSize && buffer != NULL && buffer[i].seq_num != 0; i++) {
+        if (buffer[i].flag == FLAG_EOF) {
+            sendResponse(FLAG_RR, buffer[i].seq_num + 1);
+            return EOFCONFIRM;
+        }
         printToFile(buffer[i]);
         //free(curPkt);
         //memset(curPkt, 0, sizeof(Packet));
@@ -167,11 +178,20 @@ void writeBufToFile() {
     } else {
         printf("sent RR %d after writing buffer\n", windowExpected);
         sendResponse(FLAG_RR, windowExpected);
+        memset(buffer, 0, sizeof(Packet) * windowSize);
         free(buffer);
         buffer = NULL;
         quiet = 0;
     }
     printf("windowExpected is now %d\n", windowExpected);
+    return DATA;
+}
+
+void insertIntoBuffer(int bufferPos, Packet recvPacket) {
+    memcpy(buffer + bufferPos, &recvPacket, sizeof(Packet));
+    buffer[bufferPos].data = (char *) malloc(recvPacket.size - HDR_LEN);
+    memcpy(buffer[bufferPos].data, recvPacket.data, recvPacket.size - HDR_LEN);
+    printf("buffered data %s\n", buffer[bufferPos].data);
 }
 
 STATE recieveData() {
@@ -193,18 +213,15 @@ STATE recieveData() {
         if (buffer == NULL) {
             sendResponse(FLAG_RR, recvPacket.seq_num + 1);
             windowExpected++;
-        } else writeBufToFile();
+        } else return writeBufToFile();
         return DATA;
-    } else if (recvPacket.flag == FLAG_DATA && recvPacket.seq_num > windowExpected) {
+    } else if (recvPacket.seq_num > windowExpected) {
         int bufferPos = recvPacket.seq_num % windowExpected;
         if (buffer == NULL) 
             buffer = (Packet *) malloc(sizeof(Packet) * windowSize);
         printf("buffering data %d to bufferPos %d -- %s\n",recvPacket.seq_num, bufferPos, recvPacket.data);
-        memcpy(buffer + bufferPos, &recvPacket, sizeof(Packet));
-        buffer[bufferPos].data = (char *) malloc(recvPacket.size - HDR_LEN);
-        memcpy(buffer[bufferPos].data, recvPacket.data, recvPacket.size - HDR_LEN);
-        printf("buffered data is %s\n", buffer[bufferPos].data);
         if (!quiet) sendResponse(FLAG_SREJ, windowExpected);
+        insertIntoBuffer(bufferPos, recvPacket);
         printBuffer();
         quiet = 1;
         return DATA;
