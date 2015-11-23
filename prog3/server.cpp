@@ -155,7 +155,7 @@ void printBuffer() {
 
 void printToFile(Packet recvPacket) {
     fprintf(outputFile, recvPacket.data);
-    printf("writing data %d %s\n",recvPacket.seq_num, recvPacket.data);
+    //printf("writing data %d %s\n",recvPacket.seq_num, recvPacket.data);
 }
 
 void slideWindow(int num) {

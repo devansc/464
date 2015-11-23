@@ -3,5 +3,6 @@
 * handle multiple clients at the same time - fork
 * sendtoErr recievefromErr on server side!!
 * run checksum
+* rcopy doesnt time out while sending data and server exitted
 * TESTING
 
