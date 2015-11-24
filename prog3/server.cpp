@@ -26,11 +26,12 @@ uint32_t lowerWindow;
 uint32_t upperWindow;
 uint32_t highestPktSeen;
 int quiet = 0;
+int counter = 0;
 
 int main (int argc, char **argv) {
     int connectionSocket;
     int port = 0;
-    int errPercent;
+    float errPercent;
 
     if (argc < 2 || argc > 3) {
         printf("usage %s [error-percent] [optional-port]\n", argv[0]);
@@ -45,20 +46,17 @@ int main (int argc, char **argv) {
     if (argc > 2)
         port = atoi(argv[2]);
 
-    //sendErr_init(errPercent, DROP_ON, FLIP_OFF, DEBUG_ON, RSEED_OFF);
+    sendErr_init(errPercent, DROP_ON, FLIP_OFF, DEBUG_ON, RSEED_OFF);
 
     connectionSocket = udp_recv_setup(port);
 
     while (1) {
         if (selectCall(connectionSocket, DEFAULT_TIMEOUT) == SELECT_TIMEOUT) 
             continue;
-
-        // HAS_DATA
-        //processClient(udp_recv_setup(0));
+        //else if (fork() == 0) {}
         processClient(connectionSocket);
         printf("child exitting\n");
         exit(0);
-
     }
 
     return 0;
@@ -211,6 +209,7 @@ STATE recieveData() {
     }
 
     printf("recieving packet\n");
+    counter++;
     recvPacket = recievePacket(&connection); 
     if (recvPacket.seq_num > highestPktSeen) 
         highestPktSeen = recvPacket.seq_num;
@@ -222,6 +221,7 @@ STATE recieveData() {
             sendResponse(FLAG_RR, recvPacket.seq_num + 1);
             windowExpected++;
         } else return writeBufToFile();
+        counter = 0;
         return DATA;
     } else if (recvPacket.seq_num > windowExpected) {
         int bufferPos = (recvPacket.seq_num - windowExpected) % windowSize;
@@ -235,7 +235,8 @@ STATE recieveData() {
         return DATA;
     } else if (recvPacket.flag == FLAG_DATA && recvPacket.seq_num < windowExpected) {
         printf("recieved %d when expected %d\n", recvPacket.seq_num, windowExpected);
-        if (!quiet) sendResponse(FLAG_RR, windowExpected);
+        if (!quiet) sendResponse(FLAG_RR, windowExpected);   
+        else if (counter > 10) sendResponse(FLAG_RR, windowExpected); // this is a fix... not perfect
         return DATA;
     } else if (recvPacket.flag = FLAG_EOF) {
         printf("EOF flag recieved\n");
@@ -257,7 +258,7 @@ STATE recieveFilename() {
     switch (packet.flag) {
     case FLAG_FILENAME: 
         filename = strdup(packet.data);
-        if((outputFile = open(filename, O_CREAT | O_RDWR, 0644)) < 0) {
+        if((outputFile = open(filename, O_CREAT | O_RDWR | O_TRUNC, 0777)) < 0) {
             errPacket = createPacket(seq_num++, FLAG_ERR_REMOTE, NULL, 0);  
             sendPacket(connection, errPacket);
             fprintf(stderr, "Couldn't open %s for writing\n", filename);

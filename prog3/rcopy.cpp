@@ -200,7 +200,7 @@ STATE recieveAcks() {
         }
         bufferPos = (rrNum - bottomWindow) % windowSize;
 
-        if (ackPacket.flag == FLAG_SREJ) {
+        if (ackPacket.flag == FLAG_SREJ && !hitEOF) {
             printf("recieved srej %d so setting bottom to %d, lowerWindow %d", rrNum, bottomWindow, lowerWindow);
             printf("resending packet at pos %d, %d\n", bufferPos, bufferPackets[bufferPos].seq_num);
             sendPacket(connection, bufferPackets[bufferPos]);
