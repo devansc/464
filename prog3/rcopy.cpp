@@ -28,6 +28,7 @@ uint32_t totalFilePackets;
 uint32_t windowSize;
 uint32_t bufferSize;
 float errorPercent;
+bool hitEOF;
 Packet *bufferPackets;
 
 int main(int argc, char *argv[]) {
@@ -52,6 +53,7 @@ int main(int argc, char *argv[]) {
     //printf("connection socket %d, address %s\n", connection.socket, inet_ntoa(connection.address->sin_addr));
 
     curState = FILENAME;
+    hitEOF = false;
     
     while (curState != DONE) {
         switch (curState) {
@@ -128,7 +130,7 @@ STATE getRestAcks() {
 
     if (selectCall(connection.socket, DEFAULT_TIMEOUT) == SELECT_TIMEOUT) {
         sendPacket(connection, bufferPackets[0]);
-        printf("timed out getting last acks\n");
+        printf("timed out getting last acks, sending packet %d\n", bufferPackets[0].seq_num);
         return getRestAcks();
     }
     
@@ -142,6 +144,7 @@ STATE getRestAcks() {
         printf("resending packet at pos %d, %d\n", (rrNum - bottomWindow) % windowSize, bufferPackets[(rrNum - bottomWindow) % windowSize].seq_num);
         sendPacket(connection, bufferPackets[(rrNum - bottomWindow) % windowSize]);
         bottomWindow = rrNum;
+        return DATA;
     }
     return getRestAcks();
 }
@@ -183,21 +186,19 @@ STATE recieveAcks() {
     Packet ackPacket;
     uint32_t rrNum;
     int bufferPos;
-    //int foundAcks = 0;
 
     while (selectCall(connection.socket, 0) != SELECT_TIMEOUT) {
-        //foundAcks = 1;
         ackPacket = recievePacket(&connection);
 
         //TODO run checksum
 
         rrNum = getRRSeqNum(ackPacket);
-        bufferPos = (rrNum - bottomWindow) % windowSize;
         printf("recieved rrnum %d so setting bottom to %d, lowerWindow %d, upper %d\n", rrNum, rrNum, lowerWindow, rrNum + windowSize);
         if (bottomWindow < rrNum) {
             slideWindow(rrNum - bottomWindow);
             bottomWindow = rrNum;
         }
+        bufferPos = (rrNum - bottomWindow) % windowSize;
 
         if (ackPacket.flag == FLAG_SREJ) {
             printf("recieved srej %d so setting bottom to %d, lowerWindow %d", rrNum, bottomWindow, lowerWindow);
@@ -207,8 +208,9 @@ STATE recieveAcks() {
             return ACK;
         } 
     }
-    if (/*foundAcks ||*/ lowerWindow < bottomWindow + windowSize) // if lower < upper keep sending data
+    if (lowerWindow < bottomWindow + windowSize)
         return DATA;
+    
     
     // if got to here, then need to wait for 1 sec on acks, then send 
     // bottom of window if it times out. if select finds data, process ack
@@ -220,11 +222,20 @@ STATE recieveAcks() {
 }
 
 STATE sendData() {
-    printf("running send data, bottom = %d, lower = %d, total file packets %d\n", bottomWindow, lowerWindow, totalFilePackets);
     unsigned char buffer[bufferSize];
     int bufSpot = (seq_num - bottomWindow) % windowSize;
     int len_read = 0;
+    int buffer_pos;
     Packet pkt;
+
+    printf("running send data, bottom = %d, lower = %d, total file packets %d\n", bottomWindow, lowerWindow, totalFilePackets);
+    if (hitEOF && bottomWindow < lowerWindow) {
+        sendPacket(connection, bufferPackets[0]);
+        return ACK;
+    } else if (hitEOF && bottomWindow == lowerWindow) {
+        return EOFCONFIRM;
+    }
+
 
     len_read = read(transferFile, buffer, bufferSize);
 
@@ -234,7 +245,8 @@ STATE sendData() {
         return DONE;
     case 0:
         printf("done sending data\n");
-        return LAST_ACKS;
+        hitEOF = true;
+        return ACK;
     default:
         printf("creating packet size %d\n", len_read);
         pkt = createPacket(seq_num, FLAG_DATA, (unsigned char *)buffer, len_read);
