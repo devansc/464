@@ -13,22 +13,23 @@
 void initHeader(Packet *pkt) {
     char *pload = pkt->payload;
     uint32_t seq_num = htonl(pkt->seq_num);
-    uint16_t size = htons(pkt->size);
 
     memcpy(pload, &seq_num, 4);
     memcpy(pload + 4, &(pkt->checksum), 2);
     memcpy(pload + 6, &(pkt->flag), 1);
-    memcpy(pload + 7, &size, 2);
 }
 
 Packet createPacket(uint32_t seq_num, int flag, unsigned char *payload, int size_payload) {
     Packet packet;
+    int sizePacket;
+
+    sizePacket = size_payload + HDR_LEN;
 
     packet.seq_num = seq_num;
     packet.flag = (int8_t) flag;
-    packet.size = size_payload + HDR_LEN + 1;
-    packet.payload = (char *) (malloc(packet.size));
-    memset(packet.payload, 0, packet.size);
+    packet.payload = (char *) (malloc(sizePacket));
+    packet.size = sizePacket;
+    memset(packet.payload, 0, sizePacket);
     if (size_payload > 0){
         memcpy(packet.payload + HDR_LEN, payload, size_payload);
         packet.data = packet.payload + HDR_LEN;
@@ -91,11 +92,11 @@ Packet fromPayload(char *payload) {
     memcpy(&(pkt.seq_num), payload, 4);
     memcpy(&(pkt.checksum), payload + 4, 2);
     memcpy(&(pkt.flag), payload + 6, 1);
-    memcpy(&(pkt.size), payload + 7, 2);
+    //memcpy(&(pkt.size), payload + 7, 2);
 
     pkt.payload = payload;
     pkt.data = pkt.payload + HDR_LEN;
-    pkt.size = ntohs(pkt.size);
+    //pkt.size = ntohs(pkt.size);
     pkt.seq_num = ntohl(pkt.seq_num);
     return pkt;
 }

@@ -3,8 +3,8 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-#define MAX_LEN_PKT 1401
-#define HDR_LEN 9
+#define MAX_LEN_PKT 1400
+#define HDR_LEN 7
 
 #define FLAG_DATA 1
 #define FLAG_RESEND 2
@@ -35,7 +35,7 @@ struct packet {
     uint32_t seq_num;
     int16_t checksum;
     int8_t flag;
-    uint16_t size;
+    int size;
     char *payload;
     char *data;
 };
@@ -47,7 +47,7 @@ Packet fromPayload(char *payload);
 char *getData(Packet p);
 Packet recievePacket(Connection *connection);
 SELECTVAL selectCall(int socket, int timeoutSec);
-void sendPacket(Connection server, Packet packet);
+void sendPacket(Connection connection, Packet packet);
 void print_packet(void * start, int bytes);
 
 #endif

@@ -42,7 +42,7 @@ int main (int argc, char **argv) {
     if (argc > 2)
         port = atoi(argv[2]);
 
-    //sendErr_init(errPercent, DROP_ON, FLIP_OFF, DEBUG_ON, RSEED_ON);
+    //sendErr_init(errPercent, DROP_ON, FLIP_OFF, DEBUG_ON, RSEED_OFF);
 
     connectionSocket = udp_recv_setup(port);
 
@@ -143,14 +143,6 @@ void printBuffer() {
         printf(" %d  ", buffer == NULL ? 0 : buffer[i].seq_num);
     }
     printf("\n");
-    /*
-    for (int i = 1; i < windowSize; i++) {
-        if (buffer != NULL && buffer[i].data != NULL)
-            printf("%.4s ", buffer[i].data);
-        else printf("    ");
-    }
-    printf("\n");
-    */
 }
 
 void printToFile(Packet recvPacket) {
@@ -206,8 +198,9 @@ STATE writeBufToFile() {
 
 void insertIntoBuffer(int bufferPos, Packet recvPacket) {
     memcpy(buffer + bufferPos, &recvPacket, sizeof(Packet));
-    buffer[bufferPos].data = (char *) malloc(recvPacket.size - HDR_LEN);
-    memcpy(buffer[bufferPos].data, recvPacket.data, recvPacket.size - HDR_LEN);
+    buffer[bufferPos].data = buffer[bufferPos].payload + HDR_LEN;
+    //buffer[bufferPos].data = (char *) malloc(recvPacket.size - HDR_LEN);
+    //memcpy(buffer[bufferPos].data, recvPacket.data, recvPacket.size - HDR_LEN);
     printf("buffered data %s\n", buffer[bufferPos].data);
 }
 
@@ -303,14 +296,6 @@ STATE recieveWindow() {
     }
 
     return WINDOW;
-}
-
-
-
-char *pktToString(Packet packet) {
-    char *returnString;
-    sprintf(returnString, "Packet %d len %d, data %s", packet.seq_num, packet.size, packet.data);
-    return returnString;
 }
 
 int udp_recv_setup(int port)

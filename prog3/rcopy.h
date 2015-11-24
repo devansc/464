@@ -15,5 +15,6 @@ int openFile(char *filename);
 void sendDone();
 Packet *createFilePackets(char *filename, int sizeFile);
 void checkAndGetArgs(int argc, char *argv[]);
+void slideWindow(int num);
 
 #endif
