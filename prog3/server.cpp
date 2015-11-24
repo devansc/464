@@ -53,10 +53,11 @@ int main (int argc, char **argv) {
     while (1) {
         if (selectCall(connectionSocket, DEFAULT_TIMEOUT) == SELECT_TIMEOUT) 
             continue;
-        //else if (fork() == 0) {}
-        processClient(connectionSocket);
-        printf("child exitting\n");
-        exit(0);
+        else if (fork() == 0) {
+            processClient(connectionSocket);
+            printf("child exitting\n");
+            exit(0);
+        }
     }
 
     return 0;

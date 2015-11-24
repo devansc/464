@@ -236,6 +236,8 @@ STATE recieveAcks() {
             return DONE;
         }
         printf("WARNING sending bottom of window %d\n", bottomWindow);
+        if (bottomWindow == lowerWindow)
+            return DATA;
         sendPacket(connection, bufferPackets[0]);
         counter++;
     } 
