@@ -57,19 +57,21 @@ int main(int argc, char *argv[]) {
         switch (curState) {
 
         case FILENAME:
-            filenamePacket = createPacket(seq_num, FLAG_FILENAME, (unsigned char *)argv[2], strlen(argv[2]));
-            curState =  stopAndWait(filenamePacket, 10, filenamePacket.seq_num + 1, WINDOW);
+            printf("sending filename %s\n", argv[2]);
+            filenamePacket = createPacket(seq_num++, FLAG_FILENAME, (unsigned char *)argv[2], strlen(argv[2]) + 1);
+            curState = stopAndWait(filenamePacket, 10, filenamePacket.seq_num + 1, WINDOW);
             break;
 
         case WINDOW:
             netWindow = htonl(windowSize);
-            windowPacket = createPacket(seq_num, FLAG_WINDOW, (unsigned char *)&netWindow, sizeof(int));
+            windowPacket = createPacket(seq_num++, FLAG_WINDOW, (unsigned char *)&netWindow, sizeof(int));
             lowerWindow = bottomWindow = 2;
             curState =  stopAndWait(windowPacket, 10, windowPacket.seq_num + 1, DATA);
+            bufferPackets = (Packet *) malloc(sizeof(Packet) * windowSize);
+            memset(bufferPackets, 0, sizeof(Packet) * windowSize);
             break;
 
         case DATA:
-            bufferPackets = (Packet *) malloc(sizeof(Packet) * windowSize);
             curState = sendData();
             break;
 
@@ -120,6 +122,9 @@ void checkAndGetArgs(int argc, char *argv[]) {
 
 STATE getRestAcks() {
     Packet recvPacket;
+    printf("running getRestAcks bottom %d lower %d\n", bottomWindow, lowerWindow);
+    if (bottomWindow == lowerWindow)
+        return EOFCONFIRM;
 
     if (selectCall(connection.socket, DEFAULT_TIMEOUT) == SELECT_TIMEOUT) {
         sendPacket(connection, bufferPackets[0]);
@@ -131,16 +136,12 @@ STATE getRestAcks() {
     uint32_t rrNum = getRRSeqNum(recvPacket);
     if (recvPacket.flag == FLAG_RR){
         bottomWindow = rrNum;
-        printf("recieved rrnum %d\n", rrNum);
-        if (rrNum == totalFilePackets)
-            return EOFCONFIRM;
     } else {
         printf("recieved srej %d\n", rrNum);
         printf("rrnum %d bottomWindow %d windowSize %d\n", rrNum, bottomWindow, windowSize);
         printf("resending packet at pos %d, %d\n", (rrNum - bottomWindow) % windowSize, bufferPackets[(rrNum - bottomWindow) % windowSize].seq_num);
         sendPacket(connection, bufferPackets[(rrNum - bottomWindow) % windowSize]);
         bottomWindow = rrNum;
-        return DATA;
     }
     return getRestAcks();
 }
@@ -181,6 +182,7 @@ void slideWindow(int num) {
 STATE recieveAcks() {
     Packet ackPacket;
     uint32_t rrNum;
+    int bufferPos;
     //int foundAcks = 0;
 
     while (selectCall(connection.socket, 0) != SELECT_TIMEOUT) {
@@ -190,19 +192,20 @@ STATE recieveAcks() {
         //TODO run checksum
 
         rrNum = getRRSeqNum(ackPacket);
+        bufferPos = (rrNum - bottomWindow) % windowSize;
         printf("recieved rrnum %d so setting bottom to %d, lowerWindow %d, upper %d\n", rrNum, rrNum, lowerWindow, rrNum + windowSize);
-        if (bottomWindow < rrNum)
+        if (bottomWindow < rrNum) {
             slideWindow(rrNum - bottomWindow);
+            bottomWindow = rrNum;
+        }
 
         if (ackPacket.flag == FLAG_SREJ) {
             printf("recieved srej %d so setting bottom to %d, lowerWindow %d", rrNum, bottomWindow, lowerWindow);
-            printf("rrnum %d bottomWindow %d windowSize %d\n", rrNum, bottomWindow, windowSize);
-            printf("resending packet at pos %d, %d\n", (rrNum - bottomWindow) % windowSize, bufferPackets[(rrNum - bottomWindow) % windowSize].seq_num);
-            sendPacket(connection, bufferPackets[(rrNum - bottomWindow) % windowSize]);
+            printf("resending packet at pos %d, %d\n", bufferPos, bufferPackets[bufferPos].seq_num);
+            sendPacket(connection, bufferPackets[bufferPos]);
             bottomWindow = rrNum;
             return ACK;
         } 
-        bottomWindow = rrNum;
     }
     if (/*foundAcks ||*/ lowerWindow < bottomWindow + windowSize) // if lower < upper keep sending data
         return DATA;
@@ -230,28 +233,20 @@ STATE sendData() {
         perror("send_data, read error");
         return DONE;
     case 0:
+        printf("done sending data\n");
         return LAST_ACKS;
     default:
+        printf("creating packet size %d\n", len_read);
         pkt = createPacket(seq_num, FLAG_DATA, (unsigned char *)buffer, len_read);
-        printf("sending data %s\n", pkt.data);
+        printf("sending data %d %s\n", pkt.seq_num, pkt.data);
         sendPacket(connection, pkt);
         memcpy(bufferPackets+bufSpot, &pkt, sizeof(Packet));
+        printBuffer();
         seq_num++;
         lowerWindow = seq_num;
         printf("setting buffer[%d] to seq_num %d\n", bufSpot, pkt.seq_num);
-        printf("buffer[%d].seq_num = %d\n", bufSpot, bufferPackets[bufSpot].seq_num);
         break;
     }
-
-    /*
-    if (lowerWindow < upperWindow && lowerWindow < totalFilePackets) {
-        sendPacket(connection, filePackets[lowerWindow]);
-        printf("sent data %s\n", filePackets[lowerWindow].data);
-        lowerWindow++;
-    } else if (lowerWindow == totalFilePackets) {
-        return LAST_ACKS;
-    }
-    */
 
     if (selectCall(connection.socket, 0) == SELECT_TIMEOUT && lowerWindow < bottomWindow + windowSize)  {
         printf("select didn't find data, going to send another packet\n");

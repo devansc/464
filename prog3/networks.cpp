@@ -86,7 +86,7 @@ SELECTVAL selectCall(int socket, int timeoutSec) {
 
 }
 
-Packet fromPayload(char *payload) {
+Packet fromPayload(char *payload, int size) {
     Packet pkt;
 
     memcpy(&(pkt.seq_num), payload, 4);
@@ -94,8 +94,13 @@ Packet fromPayload(char *payload) {
     memcpy(&(pkt.flag), payload + 6, 1);
     //memcpy(&(pkt.size), payload + 7, 2);
 
-    pkt.payload = payload;
-    pkt.data = pkt.payload + HDR_LEN;
+    pkt.payload = (char *)malloc(size);
+    memcpy(pkt.payload, payload, size);
+    if (size > HDR_LEN)
+        pkt.data = pkt.payload + HDR_LEN;
+    else
+        pkt.data = NULL;
+    pkt.size = size;
     //pkt.size = ntohs(pkt.size);
     pkt.seq_num = ntohl(pkt.seq_num);
     return pkt;
@@ -116,5 +121,5 @@ Packet recievePacket(Connection *connection) {
     //printf("port now %d\n", connection->address.sin_port);
     //printf("connection after recieve %s\n", inet_ntoa(connection->address.sin_addr));
     printf("recieved message len %d\n", message_len);
-    return fromPayload(payload);
+    return fromPayload(payload, message_len);
 }

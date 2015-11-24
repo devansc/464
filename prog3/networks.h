@@ -43,7 +43,7 @@ typedef struct packet Packet;
 
 
 Packet createPacket(uint32_t seq_num, int flag, unsigned char *payload, int size_payload);
-Packet fromPayload(char *payload);
+Packet fromPayload(char *payload, int size);
 char *getData(Packet p);
 Packet recievePacket(Connection *connection);
 SELECTVAL selectCall(int socket, int timeoutSec);

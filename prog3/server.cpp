@@ -5,6 +5,9 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 #include "networks.h"
 #include "server.h"
@@ -14,7 +17,7 @@
 
 int seq_num;
 Connection connection;
-FILE *outputFile; 
+int outputFile; 
 uint32_t windowSize;
 uint32_t windowExpected;
 Packet *buffer;
@@ -94,7 +97,7 @@ void processClient(int socket) {
             break;
 
         case DONE:
-            fclose(outputFile);
+            close(outputFile);
             break;
         }
     }
@@ -133,7 +136,6 @@ void sendResponse(int flag, int rrNum) {
 }
 
 void printBuffer() {
-    Packet *curPkt;
     printf("printing buffer\n");
     for (int i = 1; i < windowSize; i++) {
         printf("  %d  ", i);
@@ -146,8 +148,8 @@ void printBuffer() {
 }
 
 void printToFile(Packet recvPacket) {
-    fprintf(outputFile, recvPacket.data);
-    //printf("writing data %d %s\n",recvPacket.seq_num, recvPacket.data);
+    write(outputFile, recvPacket.data, recvPacket.size - HDR_LEN);
+    printf("writing data(len %d) %d %s\n",recvPacket.size, recvPacket.seq_num, recvPacket.data);
 }
 
 void slideWindow(int num) {
@@ -164,18 +166,14 @@ void slideWindow(int num) {
 }
 
 STATE writeBufToFile() {
-    Packet *curPkt;
     uint32_t i = 1; // already wrote the first packet
     printf("writing buf to file\n");
-    printBuffer();
     for ( ; i < windowSize && buffer != NULL && buffer[i].seq_num != 0; i++) {
         if (buffer[i].flag == FLAG_EOF) {
             sendResponse(FLAG_RR, buffer[i].seq_num + 1);
             return EOFCONFIRM;
         }
         printToFile(buffer[i]);
-        //free(curPkt);
-        //memset(curPkt, 0, sizeof(Packet));
     }
 
     windowExpected = i + windowExpected;
@@ -259,8 +257,7 @@ STATE recieveFilename() {
     switch (packet.flag) {
     case FLAG_FILENAME: 
         filename = strdup(packet.data);
-        outputFile = fopen(filename, "w");
-        if (outputFile == NULL) {
+        if((outputFile = open(filename, O_CREAT | O_RDWR, 0644)) < 0) {
             errPacket = createPacket(seq_num++, FLAG_ERR_REMOTE, NULL, 0);  
             sendPacket(connection, errPacket);
             fprintf(stderr, "Couldn't open %s for writing\n", filename);
