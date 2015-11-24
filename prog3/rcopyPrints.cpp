@@ -39,7 +39,7 @@ int main(int argc, char *argv[]) {
 
     checkAndGetArgs(argc, argv);
 
-    sendErr_init(errorPercent, DROP_ON, FLIP_ON, DEBUG_OFF, RSEED_ON);
+    sendErr_init(errorPercent, DROP_ON, FLIP_ON, DEBUG_ON, RSEED_ON);
     // 4 is remote-machine, 5 is remote-port
     connection = udp_send_setup(argv[6], argv[7]);
 
@@ -49,6 +49,10 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
+    //filePackets = createFilePackets(argv[2], sizeFile); 
+    
+    //printf("connection socket %d, address %s\n", connection.socket, inet_ntoa(connection.address->sin_addr));
+
     curState = FILENAME;
     hitEOF = false;
     
@@ -56,6 +60,7 @@ int main(int argc, char *argv[]) {
         switch (curState) {
 
         case FILENAME:
+            printf("sending filename %s\n", argv[2]);
             filenamePacket = createPacket(seq_num++, FLAG_FILENAME, (unsigned char *)argv[2], strlen(argv[2]) + 1);
             curState = stopAndWait(filenamePacket, 10, filenamePacket.seq_num + 1, WINDOW);
             break;
@@ -82,6 +87,7 @@ int main(int argc, char *argv[]) {
             break;
 
         case EOFCONFIRM:
+            printf("done sending data, sending eof\n");
             curState = sendEOF();
             sendDone();
             break;
@@ -91,6 +97,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    printf("done\n");
     return 0;
 }
 
@@ -118,11 +125,13 @@ void checkAndGetArgs(int argc, char *argv[]) {
 
 STATE getRestAcks() {
     Packet recvPacket;
+    printf("running getRestAcks bottom %d lower %d\n", bottomWindow, lowerWindow);
     if (bottomWindow == lowerWindow)
         return EOFCONFIRM;
 
     if (selectCall(connection.socket, DEFAULT_TIMEOUT) == SELECT_TIMEOUT) {
         sendPacket(connection, bufferPackets[0]);
+        printf("timed out getting last acks, sending packet %d\n", bufferPackets[0].seq_num);
         return getRestAcks();
     }
     
@@ -136,6 +145,9 @@ STATE getRestAcks() {
     if (recvPacket.flag == FLAG_RR){
         bottomWindow = rrNum;
     } else {
+        printf("recieved srej %d\n", rrNum);
+        printf("rrnum %d bottomWindow %d windowSize %d\n", rrNum, bottomWindow, windowSize);
+        printf("resending packet at pos %d, %d\n", (rrNum - bottomWindow) % windowSize, bufferPackets[(rrNum - bottomWindow) % windowSize].seq_num);
         sendPacket(connection, bufferPackets[(rrNum - bottomWindow) % windowSize]);
         bottomWindow = rrNum;
         return DATA;
@@ -146,6 +158,7 @@ STATE getRestAcks() {
 
 void sendDone() {
     Packet eofPacket = createPacket(seq_num++, FLAG_QUIT, NULL, 0);
+    printf("sending done packet\n");
     sendPacket(connection, eofPacket);
 }
 
@@ -165,12 +178,14 @@ void printBuffer() {
 void slideWindow(int num) {
     int i;
     // could be simplified to 1 memcpy/memset
+    printf("sliding window %d\n", num);
     for (i = 0; i < windowSize - num; i++) {
         memcpy(bufferPackets+i,bufferPackets+i+num,sizeof(Packet));
     }
     for (; i < windowSize; i++) {   
         memset(bufferPackets+i, 0, sizeof(Packet));
     }
+    printBuffer();
 }
 
 STATE recieveAcks() {
@@ -183,33 +198,33 @@ STATE recieveAcks() {
         counter = 0;
 
         if (ackPacket.checksum != 0) {
+            printf("checksum failed\n");
             break;
         }
         
 
         rrNum = getRRSeqNum(ackPacket);
+        printf("recieved rrnum %d so setting bottom to %d, lowerWindow %d, upper %d\n", rrNum, rrNum, lowerWindow, rrNum + windowSize);
         if (ackPacket.flag == FLAG_SREJ && !hitEOF) {
-            //printf("recieved srej %d\n", rrNum);
             bufferPos = (rrNum - bottomWindow) % windowSize;
+            printf("recieved srej %d so setting bottom to %d, lowerWindow %d", rrNum, bottomWindow, lowerWindow);
+            printf("resending packet at pos %d, %d\n", bufferPos, bufferPackets[bufferPos].seq_num);
             //if (bottomWindow == lowerWindow) 
                 //return DATA;
             sendPacket(connection, bufferPackets[bufferPos]);
             if (bottomWindow < rrNum) {
                 slideWindow(rrNum - bottomWindow);
                 bottomWindow = rrNum;
-                //printf("slid window, new bottom is %d\n", bottomWindow);
             }
             bottomWindow = rrNum;
             return ACK;
         }
-        //printf("recieved rr %d\n", rrNum);
         if (bottomWindow < rrNum) {
             slideWindow(rrNum - bottomWindow);
             bottomWindow = rrNum;
-            //printf("slid window, new bottom is %d\n", bottomWindow);
         }
     }
-    if (!hitEOF && lowerWindow < bottomWindow + windowSize)
+    if (lowerWindow < bottomWindow + windowSize)
         return DATA;
     
     
@@ -220,6 +235,7 @@ STATE recieveAcks() {
             printf("server terminated\n");
             return DONE;
         }
+        printf("WARNING sending bottom of window %d\n", bottomWindow);
         if (bottomWindow == lowerWindow)
             return DATA;
         sendPacket(connection, bufferPackets[0]);
@@ -235,6 +251,7 @@ STATE sendData() {
     int buffer_pos;
     Packet pkt;
 
+    printf("running send data, bottom = %d, lower = %d, total file packets %d\n", bottomWindow, lowerWindow, totalFilePackets);
     if (hitEOF && bottomWindow < lowerWindow) {
         sendPacket(connection, bufferPackets[0]);
         return ACK;
@@ -250,22 +267,28 @@ STATE sendData() {
         perror("send_data, read error");
         return DONE;
     case 0:
-        printf("DONE SENDING DATA\n");
+        printf("done sending data\n");
         hitEOF = true;
         return ACK;
     default:
+        printf("creating packet size %d\n", len_read);
         pkt = createPacket(seq_num, FLAG_DATA, (unsigned char *)buffer, len_read);
+        printf("sending data %d %s\n", pkt.seq_num, pkt.data);
         sendPacket(connection, pkt);
         memcpy(bufferPackets+bufSpot, &pkt, sizeof(Packet));
+        printBuffer();
         seq_num++;
         lowerWindow = seq_num;
+        printf("setting buffer[%d] to seq_num %d\n", bufSpot, pkt.seq_num);
         break;
     }
 
     if (selectCall(connection.socket, 0) == SELECT_TIMEOUT && lowerWindow < bottomWindow + windowSize)  {
+        printf("select didn't find data, going to send another packet\n");
         return DATA;
     }
     else { // acks to process, or have to have to select 1 sec for acks
+        printf("select immediately found data or waiting on acks\n");
         return ACK;
     }
 }
@@ -285,6 +308,7 @@ STATE stopAndWait(Packet packet, int numTriesLeft, int rrExpected, STATE nextSta
 
     sendPacket(connection, packet);
     if (selectCall(connection.socket, DEFAULT_TIMEOUT) == SELECT_TIMEOUT) {
+        printf("timed out waiting for server ack");
         return stopAndWait(packet, numTriesLeft - 1, rrExpected, nextState);
     }
     ackPacket = recievePacket(&connection);
@@ -293,8 +317,9 @@ STATE stopAndWait(Packet packet, int numTriesLeft, int rrExpected, STATE nextSta
         return stopAndWait(packet, numTriesLeft - 1, rrExpected, nextState);
     }
 
+    printf("recieved rr for %d\n", getRRSeqNum(ackPacket));
     if (ackPacket.flag == FLAG_ERR_REMOTE) {
-        fprintf(stderr, "Error during file open of remote-file on server.\n");
+        printf("Error during file open of remote-file on server.\n");
         return DONE;
     }
     if (getRRSeqNum(ackPacket) == rrExpected) {
@@ -341,6 +366,7 @@ Connection udp_send_setup(char *host_name, char *port) {
     newConnection.socket = socket_num;
     newConnection.address = remote;
     newConnection.addr_len = sockaddrinSize;
+    //printf("created connection socket %d, address %s\n", socket_num, inet_ntoa(remote.sin_addr));
 
     return newConnection;
 }

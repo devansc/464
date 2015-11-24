@@ -39,8 +39,6 @@ Packet createPacket(uint32_t seq_num, int flag, unsigned char *payload, int size
     initHeader(&packet);
     packet.checksum = in_cksum((unsigned short *) packet.payload, packet.size);
     memcpy(packet.payload + 4, &(packet.checksum), 2);
-    printf("added checksum %d\n", packet.checksum);
-    //printf("created packet %d, size %d, data %s\n", seq_num, packet.size, packet.data);
     return packet;
 }
 
@@ -55,13 +53,10 @@ void print_packet(void * start, int bytes) {
 }
 
 void sendPacket(Connection connection, Packet packet) {
-    //printf("sending packet to %s\n", inet_ntoa(connection.address.sin_addr));
-    //print_packet(packet.payload, packet.size);
     if (sendtoErr(connection.socket, packet.payload, packet.size, 0, (struct sockaddr*) &connection.address, connection.addr_len) < 0) {
         perror("send call failed");
         exit(-1);
     }
-    //printf("sent\n");
 }
 
 
@@ -75,13 +70,11 @@ SELECTVAL selectCall(int socket, int timeoutSec) {
     FD_ZERO(&readFds);
     FD_SET(socket, &readFds);
 
-    //printf("recieving data\n");
     if ((selectReturn = selectMod(socket + 1, &readFds, 0, 0, &timeout)) < 0) {
         perror("select call");
         exit(-1);
     }
     if (selectReturn == 0) {
-        //printf("timed out\n");
         return SELECT_TIMEOUT;
     }
     return SELECT_HAS_DATA;
@@ -114,15 +107,11 @@ Packet recievePacket(Connection *connection) {
     int message_len;
 
 
-    //printf("connection before recieve %s\n", inet_ntoa(connection->address.sin_addr));
     if ((message_len = recvfromErr(connection->socket, payload, MAX_LEN_PKT, 0, (struct sockaddr *) &(connection->address), &(connection->addr_len))) < 0) {
         perror("recvFrom call");
         exit(-1);
     } else if (message_len == 0) {
         exit(0);   // client exitted
     }
-    //printf("port now %d\n", connection->address.sin_port);
-    //printf("connection after recieve %s\n", inet_ntoa(connection->address.sin_addr));
-    printf("recieved message len %d\n", message_len);
     return fromPayload(payload, message_len);
 }

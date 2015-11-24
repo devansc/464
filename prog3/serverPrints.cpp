@@ -46,7 +46,7 @@ int main (int argc, char **argv) {
     if (argc > 2)
         port = atoi(argv[2]);
 
-    sendErr_init(errPercent, DROP_ON, FLIP_ON, DEBUG_OFF, RSEED_ON);
+    sendErr_init(errPercent, DROP_ON, FLIP_ON, DEBUG_ON, RSEED_ON);
 
     connectionSocket = udp_recv_setup(port);
 
@@ -55,6 +55,7 @@ int main (int argc, char **argv) {
             continue;
         else if (fork() == 0) {
             processClient(connectionSocket);
+            printf("child exitting\n");
             exit(0);
         }
     }
@@ -105,12 +106,14 @@ STATE eofConfirmQuit() {
     Packet quitPacket;
 
     if (selectCall(connection.socket, DEFAULT_TIMEOUT) == SELECT_TIMEOUT) {
+        printf("timed out recieving eof, exitting\n");
         return DONE;
     }
 
     quitPacket = recievePacket(&connection);
 
     if (quitPacket.checksum != 0) {
+        printf("crc failed for window size\n");
         return eofConfirmQuit();
     }
 
@@ -121,6 +124,7 @@ STATE eofConfirmQuit() {
     case FLAG_QUIT:
         return DONE;
     default:
+        printf("recieved flag %d instead of flag_quit.. fix this\n");
         return DONE;
     }
 }
@@ -128,14 +132,12 @@ STATE eofConfirmQuit() {
 void sendResponse(int flag, int rrNum) {
     Packet ackPacket;
 
-/*
     if (flag == FLAG_RR)
         printf("sending ack rr %d\n", rrNum);
     else if (flag == FLAG_SREJ)
         printf("sending srej %d\n", rrNum);
     else
         printf("sending flag %d rrNum %d\n", flag, rrNum);
-        */
     rrNum = htonl(rrNum);
     ackPacket = createPacket(seq_num++, flag, (unsigned char *)&rrNum, sizeof(int));  
     sendPacket(connection, ackPacket);
@@ -155,6 +157,7 @@ void printBuffer() {
 
 void printToFile(Packet recvPacket) {
     write(outputFile, recvPacket.data, recvPacket.size - HDR_LEN);
+    printf("writing data(len %d) %d %s\n",recvPacket.size, recvPacket.seq_num, recvPacket.data);
 }
 
 void slideWindow(int num) {
@@ -166,10 +169,13 @@ void slideWindow(int num) {
     for (; i < windowSize; i++) {   
         memset(buffer+i, 0, sizeof(Packet));
     }
+    printf("slid window %d\n", num);
+    printBuffer();
 }
 
 STATE writeBufToFile() {
     uint32_t i = 1; // already wrote the first packet
+    printf("writing buf to file\n");
     for ( ; i < windowSize && buffer != NULL && buffer[i].seq_num != 0; i++) {
         if (buffer[i].flag == FLAG_EOF) {
             sendResponse(FLAG_RR, buffer[i].seq_num + 1);
@@ -181,39 +187,49 @@ STATE writeBufToFile() {
     windowExpected = i + windowExpected;
 
     if (windowExpected < highestPktSeen) {
+        printf("sent SREJ %d after writing buffer\n", windowExpected);
         sendResponse(FLAG_SREJ, windowExpected);
         slideWindow(i);
     } else {
+        printf("sent RR %d after writing buffer\n", windowExpected);
         sendResponse(FLAG_RR, windowExpected);
         memset(buffer, 0, sizeof(Packet) * windowSize);
         free(buffer);
         buffer = NULL;
         quiet = 0;
     }
+    printf("windowExpected is now %d\n", windowExpected);
     return DATA;
 }
 
 void insertIntoBuffer(int bufferPos, Packet recvPacket) {
     memcpy(buffer + bufferPos, &recvPacket, sizeof(Packet));
     buffer[bufferPos].data = buffer[bufferPos].payload + HDR_LEN;
+    //buffer[bufferPos].data = (char *) malloc(recvPacket.size - HDR_LEN);
+    //memcpy(buffer[bufferPos].data, recvPacket.data, recvPacket.size - HDR_LEN);
+    printf("buffered data %s\n", buffer[bufferPos].data);
 }
 
 STATE recieveData() {
     Packet recvPacket;
 
     if (selectCall(connection.socket, DEFAULT_TIMEOUT) == SELECT_TIMEOUT) {
+        printf("timed out recieving data, exitting\n");
         return DONE;
     }
 
+    printf("recieving packet\n");
     counter++;
     recvPacket = recievePacket(&connection); 
 
     if (recvPacket.checksum != 0) {
+        printf("crc failed for data\n");
         return DATA;
     }
 
     if (recvPacket.seq_num > highestPktSeen) 
         highestPktSeen = recvPacket.seq_num;
+    printf("highest packet seen is %d, quiet %s\n", highestPktSeen, quiet?"true":"false");
 
     if (recvPacket.flag == FLAG_DATA && recvPacket.seq_num == windowExpected) {
         printToFile(recvPacket);
@@ -227,11 +243,19 @@ STATE recieveData() {
         int bufferPos = (recvPacket.seq_num - windowExpected) % windowSize;
         if (buffer == NULL) 
             buffer = (Packet *) malloc(sizeof(Packet) * windowSize);
+        printf("buffering data %d to bufferPos %d -- %s\n",recvPacket.seq_num, bufferPos, recvPacket.data);
         if (!quiet) sendResponse(FLAG_SREJ, windowExpected);
         insertIntoBuffer(bufferPos, recvPacket);
+        printBuffer();
         quiet = 1;
         return DATA;
     } else if (recvPacket.flag == FLAG_DATA && recvPacket.seq_num < windowExpected) {
+        printf("recieved %d when expected %d\n", recvPacket.seq_num, windowExpected);
+        /*
+        if (!quiet) sendResponse(FLAG_RR, windowExpected);   
+        else if (counter > 10) sendResponse(FLAG_RR, windowExpected); // this is a fix... not perfect
+        */
+        printf("running %d < %d\n", windowExpected, highestPktSeen + 1);
         sendResponse(FLAG_RR, windowExpected);
 
         quiet = 0;
@@ -240,6 +264,7 @@ STATE recieveData() {
         sendResponse(FLAG_RR, recvPacket.seq_num + 1);
         return DATA;
     } else {
+        printf("EOF flag recieved\n");
         if (!quiet) sendResponse(FLAG_RR, recvPacket.seq_num + 1);
         return EOFCONFIRM;
     }
@@ -263,12 +288,15 @@ STATE recieveFilename() {
         if((outputFile = open(filename, O_CREAT | O_RDWR | O_TRUNC, 0777)) < 0) {
             errPacket = createPacket(seq_num++, FLAG_ERR_REMOTE, NULL, 0);  
             sendPacket(connection, errPacket);
+            fprintf(stderr, "Couldn't open %s for writing\n", filename);
             return DONE;
         }
+        printf("opened file %s for writing\n", filename);
         rrNum = packet.seq_num + 1;
         sendResponse(FLAG_RR, rrNum);
         return WINDOW;
     default:
+        printf("Expected filename packet, recieved packet flag %d\n", packet.flag);
         break;
     }
 
@@ -280,6 +308,7 @@ STATE recieveWindow() {
     int rrNum;
 
     if (packet.checksum != 0) {
+        printf("crc failed for window size\n");
         return recieveWindow();
     }
 
@@ -292,6 +321,7 @@ STATE recieveWindow() {
         windowExpected = rrNum;
         return DATA;
     default:
+        printf("Expected window packet, recieved packet flag %d\n", packet.flag);
         break;
     }
 

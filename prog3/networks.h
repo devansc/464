@@ -3,7 +3,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-#define MAX_LEN_PKT 1400
+#define MAX_LEN_PKT 1407
 #define HDR_LEN 7
 
 #define FLAG_DATA 1
