@@ -215,7 +215,7 @@ STATE recieveAcks() {
     
     // if got to here, then need to wait for 1 sec on acks, then send 
     // bottom of window if it times out. if select finds data, process ack
-    if (selectCall(connection.socket, 1) == SELECT_TIMEOUT) { 
+    if (selectCall(connection.socket, DEFAULT_TIMEOUT) == SELECT_TIMEOUT) { 
         if (counter > 9) {
             printf("server terminated\n");
             return DONE;
@@ -250,7 +250,6 @@ STATE sendData() {
         perror("send_data, read error");
         return DONE;
     case 0:
-        printf("DONE SENDING DATA\n");
         hitEOF = true;
         return ACK;
     default:
