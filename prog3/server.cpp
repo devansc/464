@@ -46,7 +46,7 @@ int main (int argc, char **argv) {
     if (argc > 2)
         port = atoi(argv[2]);
 
-    sendErr_init(errPercent, DROP_ON, FLIP_OFF, DEBUG_ON, RSEED_OFF);
+    sendErr_init(errPercent, DROP_ON, FLIP_ON, DEBUG_ON, RSEED_ON);
 
     connectionSocket = udp_recv_setup(port);
 
@@ -110,7 +110,16 @@ STATE eofConfirmQuit() {
     }
 
     quitPacket = recievePacket(&connection);
+
+    if (quitPacket.checksum != 0) {
+        printf("crc failed for window size\n");
+        return eofConfirmQuit();
+    }
+
     switch(quitPacket.flag) {
+    case FLAG_EOF:
+        sendResponse(FLAG_RR, quitPacket.seq_num + 1);
+        return eofConfirmQuit();
     case FLAG_QUIT:
         return DONE;
     default:
@@ -211,6 +220,12 @@ STATE recieveData() {
     printf("recieving packet\n");
     counter++;
     recvPacket = recievePacket(&connection); 
+
+    if (recvPacket.checksum != 0) {
+        printf("crc failed for data\n");
+        return DATA;
+    }
+
     if (recvPacket.seq_num > highestPktSeen) 
         highestPktSeen = recvPacket.seq_num;
     printf("highest packet seen is %d, quiet %s\n", highestPktSeen, quiet?"true":"false");
@@ -235,16 +250,23 @@ STATE recieveData() {
         return DATA;
     } else if (recvPacket.flag == FLAG_DATA && recvPacket.seq_num < windowExpected) {
         printf("recieved %d when expected %d\n", recvPacket.seq_num, windowExpected);
+        /*
         if (!quiet) sendResponse(FLAG_RR, windowExpected);   
         else if (counter > 10) sendResponse(FLAG_RR, windowExpected); // this is a fix... not perfect
+        */
+        printf("running %d < %d\n", windowExpected, highestPktSeen + 1);
+        sendResponse(FLAG_RR, windowExpected);
+
+        quiet = 0;
         return DATA;
-    } else if (recvPacket.flag = FLAG_EOF) {
+    } else if (recvPacket.flag != FLAG_EOF) {
+        sendResponse(FLAG_RR, recvPacket.seq_num + 1);
+        return DATA;
+    } else {
         printf("EOF flag recieved\n");
         if (!quiet) sendResponse(FLAG_RR, recvPacket.seq_num + 1);
         return EOFCONFIRM;
-    } else
-        printf("unexpected packet: recieved packet %d, expected %d\n", recvPacket.seq_num, windowExpected);
-    return DONE;
+    }
 }
 
 STATE recieveFilename() {
@@ -254,6 +276,10 @@ STATE recieveFilename() {
     int rrNum;
     int newSocket = udp_recv_setup(0);
     connection.socket = newSocket;
+
+    if (packet.checksum != 0) {
+        return recieveFilename();
+    }
 
     switch (packet.flag) {
     case FLAG_FILENAME: 
@@ -279,6 +305,11 @@ STATE recieveFilename() {
 STATE recieveWindow() {
     Packet packet = recievePacket(&connection);
     int rrNum;
+
+    if (packet.checksum != 0) {
+        printf("crc failed for window size\n");
+        return recieveWindow();
+    }
 
     switch (packet.flag) {
     case FLAG_WINDOW: 

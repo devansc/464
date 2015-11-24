@@ -15,7 +15,6 @@ void initHeader(Packet *pkt) {
     uint32_t seq_num = htonl(pkt->seq_num);
 
     memcpy(pload, &seq_num, 4);
-    memcpy(pload + 4, &(pkt->checksum), 2);
     memcpy(pload + 6, &(pkt->flag), 1);
 }
 
@@ -38,6 +37,9 @@ Packet createPacket(uint32_t seq_num, int flag, unsigned char *payload, int size
     }
     
     initHeader(&packet);
+    packet.checksum = in_cksum((unsigned short *) packet.payload, packet.size);
+    memcpy(packet.payload + 4, &(packet.checksum), 2);
+    printf("added checksum %d\n", packet.checksum);
     //printf("created packet %d, size %d, data %s\n", seq_num, packet.size, packet.data);
     return packet;
 }
@@ -103,6 +105,7 @@ Packet fromPayload(char *payload, int size) {
     pkt.size = size;
     //pkt.size = ntohs(pkt.size);
     pkt.seq_num = ntohl(pkt.seq_num);
+    pkt.checksum = in_cksum((unsigned short *)payload, size);
     return pkt;
 }
 
