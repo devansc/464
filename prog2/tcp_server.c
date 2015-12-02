@@ -153,6 +153,7 @@ void send_handles(int client_socket) {
     fullHandlePkt = create_full_packet((uint8_t)12, handlePkt, lenHandlePkt);
     fullHandlePkt[4] = 0;  // set the length field of 
     fullHandlePkt[5] = 0;  // the packet to 0
+    usleep(100);
     tcp_send(client_socket, fullHandlePkt, NRML_HDR_LEN + lenHandlePkt);
     free(fullHandlePkt);
 }
