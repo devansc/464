@@ -186,8 +186,8 @@ STATE writeBufToFile() {
     } else {
         sendResponse(FLAG_RR, windowExpected);
         memset(buffer, 0, sizeof(Packet) * windowSize);
-        free(buffer);
-        buffer = NULL;
+        //free(buffer);
+        //buffer = NULL;
         quiet = 0;
     }
     return DATA;
