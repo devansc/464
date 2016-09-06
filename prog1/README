@@ -1,2 +1,0 @@
-# File Sniffer
-This is a file sniffer program that took raw data in .pcap form, and printed out the headers of ICMP, UDP, and TCP headers.
