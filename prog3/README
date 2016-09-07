@@ -1,1 +1,1 @@
-This program does a file transfer using UDP to download a file from a server. It uses a sliding window to send the packets to maximize the bandwidth.
+This program does a file transfer using UDP to download a file from a server. It uses a sliding window to send the packets to maximize the bandwidth. The client downloads a file that is on the server similar to scp. 
